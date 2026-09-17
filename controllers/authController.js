@@ -1,6 +1,15 @@
-// backend/controllers/authController.js
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Centralized cookie configuration
+const cookieOptions = {
+  httpOnly: true,
+  secure: isProduction, // Mandatory when sameSite is 'none'
+  sameSite: isProduction ? 'none' : 'lax', // Allows cross-domain cookies in production
+  maxAge: 7 * 24 * 60 * 60 * 1000
+};
 
 const generateToken = (id, role) => {
   return jwt.sign({ id, role }, process.env.JWT_SECRET || 'fallback_secret_key', {
@@ -40,13 +49,8 @@ const login = async (req, res) => {
 
     const token = generateToken(user._id, user.role);
 
-    // Set HTTP-Only Cookie
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    // Set HTTP-Only Cookie with cross-domain support
+    res.cookie('token', token, cookieOptions);
 
     res.json({
       token,
@@ -96,12 +100,7 @@ const register = async (req, res) => {
 
     const token = generateToken(user._id, user.role);
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    res.cookie('token', token, cookieOptions);
 
     res.status(201).json({
       token,
@@ -126,7 +125,7 @@ const register = async (req, res) => {
  */
 const logout = (req, res) => {
   res.cookie('token', '', {
-    httpOnly: true,
+    ...cookieOptions,
     expires: new Date(0)
   });
   res.json({ message: 'Logged out successfully' });

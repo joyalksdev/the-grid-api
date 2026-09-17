@@ -20,39 +20,68 @@ connectDB();
 
 const app = express();
 
-// Configure CORS Options
+// Required when deploying behind reverse proxies (Render, Railway, Cloudflare, Heroku)
+// Ensures correct client IP detection for rate limiters
+app.set('trust proxy', 1);
+
+// Configure CORS Options (supports single URL or comma-separated origins)
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim())
+  : ['http://localhost:5173'];
+
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    // Allow server-to-server or non-browser tools (like Postman) with no origin
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS policy blocks this origin'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
 
+// Production Security Headers
 app.use(
   helmet({
-    crossOriginResourcePolicy: { policy: 'cross-origin' }
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }
   })
 );
 
-// Rate Limiters
+// Global API Rate Limiter
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests from this IP. Please try again after 15 minutes.' }
 });
+
+// Strict Auth Rate Limiter (Brute-force protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit each IP to 10 login/register attempts per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  message: { error: 'Too many failed login attempts. Please try again after 15 minutes.' }
+});
+
+// Apply Global Rate Limiting
 app.use('/api', globalLimiter);
 
-// Body Parsers & Middlewares
+// Body Parsers & Data Sanitization
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
-app.use(cookieParser());
-app.use(mongoSanitize());
-app.use(hpp());
+app.use(cookieParser(process.env.COOKIE_SECRET));
+app.use(mongoSanitize()); // Prevent NoSQL Injection
+app.use(hpp()); // Prevent HTTP Parameter Pollution
 
 // Health Check Endpoint
 app.get('/health', (req, res) => {
@@ -63,8 +92,8 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API Routes
-app.use('/api/auth', require('./routes/authRoutes'));
+// API Routes with Endpoint-Specific Limiters
+app.use('/api/auth', authLimiter, require('./routes/authRoutes'));
 app.use('/api/screens', require('./routes/screenRoutes'));
 app.use('/api/logs', require('./routes/logRoutes'));
 
@@ -77,7 +106,12 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   console.error('🔴 API Error Caught:', err.message);
 
-  // Catch duplicate key index errors (E11000) without crashing
+  // CORS rejection handling
+  if (err.message === 'CORS policy blocks this origin') {
+    return res.status(403).json({ error: err.message });
+  }
+
+  // Catch MongoDB duplicate key index errors (E11000)
   if (err.code === 11000) {
     const field = Object.keys(err.keyValue || {})[0] || 'field';
     return res.status(400).json({
@@ -85,7 +119,7 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // Catch Mongoose Validation Errors (e.g. invalid enum)
+  // Catch Mongoose Validation Errors
   if (err.name === 'ValidationError') {
     const messages = Object.values(err.errors).map((val) => val.message);
     return res.status(400).json({ error: messages.join(', ') });
