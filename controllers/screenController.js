@@ -1,9 +1,11 @@
+// backend/controllers/screenController.js
 const Screen = require('../models/Screen');
 const ActivityLog = require('../models/ActivityLog');
-const { calculateSessionCost, getAvailableDurations, getPlayersCount } = require('../config/pricing');
+const { calculateSessionCost, getPlayersCount } = require('../config/pricing');
+const { getIO } = require('../socket');
 
 /**
- * Helper to generate the next sequential logId (Option B)
+ * Helper to generate the next sequential logId
  */
 const getNextLogId = async () => {
   const lastLog = await ActivityLog.findOne().sort({ _id: -1 }).select('logId').lean();
@@ -73,6 +75,9 @@ const startSession = async (req, res, next) => {
 
     await screen.save();
 
+    // Broadcast updated screen state to all clients in real time
+    getIO().emit('screen_updated', screen);
+
     res.json({
       message: 'Session started successfully',
       screen
@@ -117,6 +122,9 @@ const extendSession = async (req, res, next) => {
 
     await screen.save();
 
+    // Broadcast extension update to all clients in real time
+    getIO().emit('screen_updated', screen);
+
     res.json({
       message: 'Session extended successfully',
       screen
@@ -125,7 +133,6 @@ const extendSession = async (req, res, next) => {
     next(error);
   }
 };
-
 
 /**
  * @desc    Checkout a session and log the transaction
@@ -149,20 +156,17 @@ const checkoutSession = async (req, res, next) => {
       return res.status(400).json({ error: 'No active session to checkout' });
     }
 
-    // Preserve active session data before clearing
     const activeSessionData = screen.activeSession.toObject
       ? screen.activeSession.toObject()
       : { ...screen.activeSession };
 
     const { finalCost, paymentType } = req.body;
 
-    // Normalize payment type for Mongoose Schema Enum ('Cash' or 'UPI')
     let normalizedPayment = 'Cash';
     if (paymentType && paymentType.toLowerCase().includes('upi')) {
       normalizedPayment = 'UPI';
     }
 
-    // Dynamic sequential ID generation
     const logId = await getNextLogId();
 
     const timeString = new Date().toLocaleTimeString([], {
@@ -189,18 +193,24 @@ const checkoutSession = async (req, res, next) => {
     screen.activeSession = null;
     await screen.save();
 
+    const formattedLog = {
+      id: logId,
+      player: activeSessionData.player,
+      screen: `${screen.name} (${activeSessionData.mode})`,
+      duration: `${activeSessionData.duration} Mins`,
+      cost: finalAmount,
+      payment: normalizedPayment,
+      time: timeString
+    };
+
+    // Broadcast screen clearance AND new activity log entry in real time
+    getIO().emit('screen_updated', screen);
+    getIO().emit('log_added', formattedLog);
+
     res.json({
       message: 'Checkout completed successfully',
       screen,
-      logEntry: {
-        id: logId,
-        player: activeSessionData.player,
-        screen: `${screen.name} (${activeSessionData.mode})`,
-        duration: `${activeSessionData.duration} Mins`,
-        cost: finalAmount,
-        payment: normalizedPayment,
-        time: timeString
-      }
+      logEntry: formattedLog
     });
   } catch (error) {
     next(error);

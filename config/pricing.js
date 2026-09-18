@@ -1,5 +1,4 @@
-// backend/config/pricing.js
-const PRICING_MATRIX = {
+const DEFAULT_PRICING_MATRIX = {
   Single: {
     sessions: { 15: 50, 30: 90, 60: 160 },
     extensions: { 15: 50, 30: 80, 60: 130 }
@@ -18,9 +17,9 @@ const PRICING_MATRIX = {
   }
 };
 
-const calculateSessionCost = (mode, duration, isExtension = false) => {
+const calculateSessionCost = (mode, duration, isExtension = false, activeMatrix = DEFAULT_PRICING_MATRIX) => {
   const category = isExtension ? 'extensions' : 'sessions';
-  const modePricing = PRICING_MATRIX[mode];
+  const modePricing = activeMatrix[mode];
 
   if (!modePricing || !modePricing[category] || !modePricing[category][duration]) {
     return 0;
@@ -29,9 +28,7 @@ const calculateSessionCost = (mode, duration, isExtension = false) => {
   return modePricing[category][duration];
 };
 
-const getAvailableDurations = (mode) => {
-  return [15, 30, 60];
-};
+const getAvailableDurations = (mode) => [15, 30, 60];
 
 const getPlayersCount = (mode) => {
   if (mode === 'SimDrive' || mode === 'Single') return 1;
@@ -41,7 +38,7 @@ const getPlayersCount = (mode) => {
 };
 
 module.exports = {
-  PRICING_MATRIX,
+  DEFAULT_PRICING_MATRIX,
   calculateSessionCost,
   getAvailableDurations,
   getPlayersCount
