@@ -11,7 +11,7 @@ const sessionSchema = new mongoose.Schema({
   },
   mode: {
     type: String,
-    enum: ['Single', 'Dual', 'Big', 'SimDrive'],
+    enum: ['Single', 'Dual', 'Triple', 'Big', 'SimDrive'], // Added 'Triple'
     required: true
   },
   playersCount: {
@@ -44,7 +44,7 @@ const ScreenSchema = new mongoose.Schema({
   screenId: {
     type: Number,
     required: true,
-    unique: true // Automatically builds the screenId index
+    unique: true
   },
   name: {
     type: String,

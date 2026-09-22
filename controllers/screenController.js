@@ -1,4 +1,3 @@
-// backend/controllers/screenController.js
 const Screen = require('../models/Screen');
 const ActivityLog = require('../models/ActivityLog');
 const { calculateSessionCost, getPlayersCount } = require('../config/pricing');
@@ -169,9 +168,11 @@ const checkoutSession = async (req, res, next) => {
 
     const logId = await getNextLogId();
 
-    const timeString = new Date().toLocaleTimeString([], {
+    const timeString = new Date().toLocaleTimeString('en-IN', {
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'Asia/Kolkata'
     });
 
     const finalAmount = finalCost !== undefined ? finalCost : activeSessionData.estimatedCost;

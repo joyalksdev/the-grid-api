@@ -22,6 +22,7 @@ const pricingConfigSchema = new mongoose.Schema(
     matrix: {
       Single: { type: ModePricingSchema, required: true },
       Dual: { type: ModePricingSchema, required: true },
+      Triple: { type: ModePricingSchema, required: true },
       Big: { type: ModePricingSchema, required: true },
       SimDrive: { type: ModePricingSchema, required: true },
     },

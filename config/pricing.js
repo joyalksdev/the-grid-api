@@ -7,6 +7,10 @@ const DEFAULT_PRICING_MATRIX = {
     sessions: { 15: 80, 30: 140, 60: 250 },
     extensions: { 15: 80, 30: 120, 60: 190 }
   },
+  Triple: {
+    sessions: { 15: 100, 30: 180, 60: 310 },
+    extensions: { 15: 100, 30: 160, 60: 270 }
+  },
   Big: {
     sessions: { 15: 120, 30: 220, 60: 380 },
     extensions: { 15: 120, 30: 200, 60: 340 }
@@ -33,6 +37,7 @@ const getAvailableDurations = (mode) => [15, 30, 60];
 const getPlayersCount = (mode) => {
   if (mode === 'SimDrive' || mode === 'Single') return 1;
   if (mode === 'Dual') return 2;
+  if (mode === 'Triple') return 3;
   if (mode === 'Big') return 4;
   return 1;
 };
