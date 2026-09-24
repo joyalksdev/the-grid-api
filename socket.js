@@ -10,6 +10,8 @@ const initSocket = (server, allowedOrigins) => {
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
     },
+    transports: ['polling', 'websocket'], // Explicitly support HTTP polling fallback
+    allowEIO3: true,                      // Compatibility mode for Engine.IO
   });
 
   io.on('connection', (socket) => {
@@ -19,8 +21,8 @@ const initSocket = (server, allowedOrigins) => {
       socket.join(`screen_${screenId}`);
     });
 
-    socket.on('disconnect', () => {
-      console.log(`❌ Socket disconnected: ${socket.id}`);
+    socket.on('disconnect', (reason) => {
+      console.log(`❌ Socket disconnected (${socket.id}): ${reason}`);
     });
   });
 
