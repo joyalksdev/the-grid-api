@@ -25,12 +25,14 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 
+// server.js
 const envOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim())
   : [];
 
 const allowedOrigins = [
   ...envOrigins,
+  'https://gridgaming.vercel.app', // Explicitly added Vercel domain
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];
