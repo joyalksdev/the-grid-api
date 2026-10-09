@@ -34,7 +34,7 @@ const getUserById = async (req, res) => {
 // @access  Private/Admin
 const createUser = async (req, res) => {
   try {
-    const { name, email, username, password, role } = req.body;
+    const { name, email, username, password, role, userId } = req.body;
 
     if (!name || !username || !password) {
       return res.status(400).json({ message: 'Name, username, and password are required' });
@@ -42,28 +42,32 @@ const createUser = async (req, res) => {
 
     // Check if username or email already exists
     const userExists = await User.findOne({
-      $or: [{ username: username.toLowerCase() }, { email: email?.toLowerCase() }],
+      $or: [
+        { username: username.toLowerCase() },
+        ...(email ? [{ email: email.toLowerCase() }] : [])
+      ],
     });
 
     if (userExists) {
       return res.status(400).json({ message: 'Username or email already in use' });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    // Auto-generate userId if not passed explicitly (e.g. USR-98213 or based on username)
+    const generatedUserId = userId || `usr_${username.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Math.floor(1000 + Math.random() * 9000)}`;
 
     const user = await User.create({
+      userId: generatedUserId,
       name,
-      email: email ? email.toLowerCase() : '',
+      email: email ? email.toLowerCase() : undefined,
       username: username.toLowerCase(),
-      password: hashedPassword,
+      password, // Pre-save hook in User model will auto-hash this safely
       role: role || 'operator',
       isActive: true,
     });
 
     res.status(201).json({
       _id: user._id,
+      userId: user.userId,
       name: user.name,
       username: user.username,
       email: user.email,
@@ -74,6 +78,8 @@ const createUser = async (req, res) => {
     res.status(500).json({ message: error.message || 'Failed to create user' });
   }
 };
+
+
 
 // @desc    Update user details (Role, Name, Email)
 // @route   PUT /api/users/:id
@@ -94,10 +100,10 @@ const updateUser = async (req, res) => {
       user.isActive = req.body.isActive;
     }
 
-    // Optional password update
-    if (req.body.password) {
-      const salt = await bcrypt.genSalt(10);
-      user.password = await bcrypt.hash(req.body.password, salt);
+    // FIX: Remove manual bcrypt hashing to prevent double-hashing.
+    // The pre-save hook in the User model will automatically catch this and hash it.
+    if (req.body.password && req.body.password.trim() !== '') {
+      user.password = req.body.password;
     }
 
     const updatedUser = await user.save();
@@ -114,6 +120,7 @@ const updateUser = async (req, res) => {
     res.status(500).json({ message: error.message || 'Failed to update user' });
   }
 };
+
 
 // @desc    Toggle staff active/inactive status
 // @route   PATCH /api/users/:id/status
@@ -161,6 +168,42 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// @desc    Update current logged-in user profile
+// @route   PUT /api/users/profile
+// @access  Private
+const updateUserProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (req.body.name) user.name = req.body.name.trim();
+    if (req.body.phone) user.phone = req.body.phone.trim();
+
+    // Attach Cloudinary image URL if uploaded via Multer
+    if (req.file && req.file.path) {
+      user.photoUrl = req.file.path;
+    }
+
+    const updatedUser = await user.save();
+
+    res.json({
+      _id: updatedUser._id,
+      userId: updatedUser.userId,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      phone: updatedUser.phone,
+      role: updatedUser.role,
+      photoUrl: updatedUser.photoUrl,
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ message: 'Server error updating profile' });
+  }
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -168,4 +211,5 @@ module.exports = {
   updateUser,
   toggleUserStatus,
   deleteUser,
+  updateUserProfile,
 };

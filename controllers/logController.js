@@ -9,7 +9,10 @@ const escapeRegex = (text) => text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
  * Helper to generate the next sequential logId
  */
 const getNextLogId = async () => {
-  const lastLog = await ActivityLog.findOne().sort({ createdAt: -1, _id: -1 }).select('logId').lean();
+  const lastLog = await ActivityLog.findOne()
+    .sort({ createdAt: -1, _id: -1 })
+    .select('logId')
+    .lean();
 
   if (!lastLog || !lastLog.logId) {
     return 'LOG-1001';
@@ -26,6 +29,7 @@ const getNextLogId = async () => {
 /**
  * @desc    Create a new activity log entry
  * @route   POST /api/logs
+ * @access  Private (Staff / Operator / Admin / Owner)
  */
 const createLog = async (req, res) => {
   try {
@@ -37,6 +41,9 @@ const createLog = async (req, res) => {
 
     const logId = await getNextLogId();
 
+    const staffUser = req.user;
+    const operatorName = staffUser ? (staffUser.name || staffUser.username) : 'System Staff';
+
     const newLog = await ActivityLog.create({
       logId,
       player,
@@ -44,6 +51,8 @@ const createLog = async (req, res) => {
       duration: String(duration),
       cost: Number(cost),
       payment,
+      loggedBy: staffUser ? staffUser._id : null,
+      operatorName,
       startTime: startTime ? new Date(startTime) : undefined,
       endTime: endTime ? new Date(endTime) : undefined,
       timestamp: timestamp ? new Date(timestamp) : new Date()
@@ -57,6 +66,8 @@ const createLog = async (req, res) => {
       duration: newLog.duration,
       cost: newLog.cost,
       payment: newLog.payment,
+      loggedBy: newLog.loggedBy,
+      operatorName: newLog.operatorName,
       startTime: newLog.startTime,
       endTime: newLog.endTime,
       time: newLog.timestamp
@@ -72,37 +83,74 @@ const createLog = async (req, res) => {
 };
 
 /**
- * @desc    Get activity logs with optional search filter and date range
+ * @desc    Get activity logs with search, date range/custom date, payment & screen filters
  * @route   GET /api/logs
  */
 const getLogs = async (req, res) => {
   try {
-    const { search, date } = req.query;
+    const { search, dateRange, date, payment, screen } = req.query;
     let query = {};
+    const now = new Date();
 
-    // Fixed date boundaries calculation
-    if (date && date !== 'all') {
-      const baseDate = new Date(date);
-      if (!isNaN(baseDate.getTime())) {
-        const startOfDay = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
-        const endOfDay = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 23, 59, 59, 999);
-        query.timestamp = { $gte: startOfDay, $lte: endOfDay };
+    const range = dateRange || date;
+
+    // Date Range Processing
+    if (range && range !== 'all') {
+      let start, end;
+
+      if (range === 'today') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      } else if (range === 'yesterday') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+        end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+      } else if (range === 'this_week') {
+        const firstDay = now.getDate() - now.getDay();
+        start = new Date(now.getFullYear(), now.getMonth(), firstDay, 0, 0, 0, 0);
+        end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      } else if (range === 'this_month') {
+        start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else {
+        const baseDate = new Date(range);
+        if (!isNaN(baseDate.getTime())) {
+          start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
+          end = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 23, 59, 59, 999);
+        }
       }
-    } else if (!date) {
-      // Default to today
-      const now = new Date();
+
+      if (start && end) {
+        query.timestamp = { $gte: start,$lte: end };
+      }
+    } else if (!range) {
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      query.timestamp = { $gte: startOfDay, $lte: endOfDay };
+      query.timestamp = { $gte: startOfDay,$lte: endOfDay };
     }
 
+    // Payment Filter
+    if (payment && payment !== 'all') {
+      if (payment.toLowerCase() === 'upi') {
+        query.payment = { $regex: /upi|gpay/i };
+      } else {
+        query.payment = payment;
+      }
+    }
+
+    // Screen Filter
+    if (screen && screen !== 'all') {
+      query.screen = screen;
+    }
+
+    // Search Filter
     if (search && search.trim()) {
       const safeSearch = escapeRegex(search.trim());
-      const searchRegex = { $regex: safeSearch, $options: 'i' };
+      const searchRegex = { $regex: safeSearch,$options: 'i' };
       query.$or = [
         { player: searchRegex },
         { logId: searchRegex },
-        { screen: searchRegex }
+        { screen: searchRegex },
+        { operatorName: searchRegex }
       ];
     }
 
@@ -119,6 +167,8 @@ const getLogs = async (req, res) => {
       duration: log.duration,
       cost: log.cost,
       payment: log.payment,
+      loggedBy: log.loggedBy,
+      operatorName: log.operatorName || 'System Staff',
       startTime: log.startTime,
       endTime: log.endTime,
       time: log.timestamp
@@ -136,7 +186,7 @@ const getLogs = async (req, res) => {
 };
 
 /**
- * @desc    Get aggregated metrics (total revenue and session count)
+ * @desc    Get aggregated metrics
  * @route   GET /api/logs/metrics
  */
 const getMetrics = async (req, res) => {
@@ -146,15 +196,34 @@ const getMetrics = async (req, res) => {
         $group: {
           _id: null,
           totalRevenue: { $sum: '$cost' },
-          totalSessions: { $sum: 1 }
+          totalSessions: { $sum: 1 },
+          totalCash: {
+            $sum: {$cond: [{ $eq: [{$toLower: '$payment' }, 'cash'] }, '$cost', 0]
+            }
+          },
+          totalUPI: {
+            $sum: {$cond: [
+                {
+                  $or: [
+                    { $regexMatch: { input: '$payment', regex: /upi/i } },
+                    { $regexMatch: { input: '$payment', regex: /gpay/i } }
+                  ]
+                },
+                '$cost',
+                0
+              ]
+            }
+          }
         }
       }
     ]);
 
-    const result = metrics.length > 0 ? metrics[0] : { totalRevenue: 0, totalSessions: 0 };
+    const result = metrics.length > 0 ? metrics[0] : { totalRevenue: 0, totalCash: 0, totalUPI: 0, totalSessions: 0 };
 
     res.json({
       totalRevenue: result.totalRevenue || 0,
+      totalCash: result.totalCash || 0,
+      totalUPI: result.totalUPI || 0,
       totalSessions: result.totalSessions || 0
     });
   } catch (error) {
@@ -171,7 +240,7 @@ const getLogsByPlayer = async (req, res) => {
   try {
     const { playerName } = req.params;
     const safePlayer = escapeRegex(playerName);
-    
+
     const logs = await ActivityLog.find({
       player: { $regex: new RegExp(`^${safePlayer}$`, 'i') }
     })
@@ -187,6 +256,8 @@ const getLogsByPlayer = async (req, res) => {
       duration: log.duration,
       cost: log.cost,
       payment: log.payment,
+      loggedBy: log.loggedBy,
+      operatorName: log.operatorName || 'System Staff',
       startTime: log.startTime,
       endTime: log.endTime,
       time: log.timestamp
@@ -204,29 +275,40 @@ const getLogsByPlayer = async (req, res) => {
 };
 
 /**
- * @desc    Update an activity log entry
+ * @desc    Update an activity log entry with strict ownership check
  * @route   PUT /api/logs/:id
+ * @access  Private
  */
 const updateLog = async (req, res) => {
   try {
     const { id } = req.params;
     const { player, screen, duration, cost, payment } = req.body;
 
-    const updatedLog = await ActivityLog.findByIdAndUpdate(
-      id,
-      { 
-        player, 
-        screen, 
-        duration: String(duration), 
-        cost: Number(cost), 
-        payment 
-      },
-      { new: true, runValidators: true }
-    );
+    const log = await ActivityLog.findById(id);
 
-    if (!updatedLog) {
+    if (!log) {
       return res.status(404).json({ error: 'Log entry not found' });
     }
+
+    // STRICT OWNERSHIP CHECK:
+    // Owner and Admin can edit any log.
+    // Staff/Operator can ONLY edit logs that they logged themselves.
+    const isElevatedRole = req.user && ['owner', 'admin'].includes(req.user.role);
+    const isCreator = log.loggedBy && req.user && log.loggedBy.toString() === req.user._id.toString();
+
+    if (!isElevatedRole && !isCreator) {
+      return res.status(403).json({
+        error: 'Permission denied. Staff members can only edit logs created by themselves.'
+      });
+    }
+
+    if (player !== undefined) log.player = player;
+    if (screen !== undefined) log.screen = screen;
+    if (duration !== undefined) log.duration = String(duration);
+    if (cost !== undefined) log.cost = Number(cost);
+    if (payment !== undefined) log.payment = payment;
+
+    const updatedLog = await log.save();
 
     res.json({
       _id: updatedLog._id,
@@ -236,6 +318,8 @@ const updateLog = async (req, res) => {
       duration: updatedLog.duration,
       cost: updatedLog.cost,
       payment: updatedLog.payment,
+      loggedBy: updatedLog.loggedBy,
+      operatorName: updatedLog.operatorName,
       startTime: updatedLog.startTime,
       endTime: updatedLog.endTime,
       time: updatedLog.timestamp
@@ -250,17 +334,33 @@ const updateLog = async (req, res) => {
 };
 
 /**
- * @desc    Delete an activity log entry
+ * @desc    Delete an activity log entry with strict ownership check
  * @route   DELETE /api/logs/:id
+ * @access  Private
  */
 const deleteLog = async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedLog = await ActivityLog.findByIdAndDelete(id);
 
-    if (!deletedLog) {
+    const log = await ActivityLog.findById(id);
+
+    if (!log) {
       return res.status(404).json({ error: 'Log entry not found' });
     }
+
+    // STRICT OWNERSHIP CHECK:
+    // Owner and Admin can delete any log.
+    // Staff/Operator can ONLY delete logs that they logged themselves.
+    const isElevatedRole = req.user && ['owner', 'admin'].includes(req.user.role);
+    const isCreator = log.loggedBy && req.user && log.loggedBy.toString() === req.user._id.toString();
+
+    if (!isElevatedRole && !isCreator) {
+      return res.status(403).json({
+        error: 'Permission denied. Staff members can only delete logs created by themselves.'
+      });
+    }
+
+    await log.deleteOne();
 
     res.json({ message: 'Log entry removed successfully' });
   } catch (error) {

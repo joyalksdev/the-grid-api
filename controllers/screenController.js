@@ -74,7 +74,6 @@ const startSession = async (req, res, next) => {
 
     await screen.save();
 
-    // Broadcast updated screen state to all clients in real time
     getIO().emit('screen_updated', screen);
 
     res.json({
@@ -121,7 +120,6 @@ const extendSession = async (req, res, next) => {
 
     await screen.save();
 
-    // Broadcast extension update to all clients in real time
     getIO().emit('screen_updated', screen);
 
     res.json({
@@ -177,6 +175,10 @@ const checkoutSession = async (req, res, next) => {
 
     const finalAmount = finalCost !== undefined ? finalCost : activeSessionData.estimatedCost;
 
+    // Capture staff details from req.user
+    const staffUser = req.user;
+    const operatorName = staffUser ? (staffUser.name || staffUser.username) : 'System Staff';
+
     const logEntry = new ActivityLog({
       logId,
       player: activeSessionData.player,
@@ -184,6 +186,8 @@ const checkoutSession = async (req, res, next) => {
       duration: `${activeSessionData.duration} Mins`,
       cost: finalAmount,
       payment: normalizedPayment,
+      loggedBy: staffUser ? staffUser._id : null,
+      operatorName,
       timestamp: new Date()
     });
 
@@ -201,10 +205,11 @@ const checkoutSession = async (req, res, next) => {
       duration: `${activeSessionData.duration} Mins`,
       cost: finalAmount,
       payment: normalizedPayment,
+      loggedBy: staffUser ? staffUser._id : null,
+      operatorName,
       time: timeString
     };
 
-    // Broadcast screen clearance AND new activity log entry in real time
     getIO().emit('screen_updated', screen);
     getIO().emit('log_added', formattedLog);
 
