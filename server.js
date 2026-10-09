@@ -101,6 +101,9 @@ app.use('/api/screens', require('./routes/screenRoutes'));
 app.use('/api/pricing', require('./routes/pricingRoutes'));
 app.use('/api/logs', require('./routes/logRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/tasks', require('./routes/taskRoutes'));
+app.use('/api/hardware', require('./routes/hardwareRoutes'));
+app.use('/api/analytics', require('./routes/analyticsRoutes'));
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
