@@ -35,6 +35,17 @@ const ActivityLogSchema = new mongoose.Schema(
       enum: ['Cash', 'UPI', 'UPI/GPay', 'Card'],
       required: true
     },
+    // Staff / Operator tracking fields
+    loggedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: false
+    },
+    operatorName: {
+      type: String,
+      trim: true,
+      default: 'System Staff'
+    },
     startTime: {
       type: Date
     },
@@ -54,6 +65,7 @@ const ActivityLogSchema = new mongoose.Schema(
 // Indexes for query performance
 ActivityLogSchema.index({ timestamp: -1 });
 ActivityLogSchema.index({ player: 1 });
+ActivityLogSchema.index({ loggedBy: 1 });
 
 const ActivityLog = mongoose.model('ActivityLog', ActivityLogSchema);
 

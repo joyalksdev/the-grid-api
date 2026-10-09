@@ -1,4 +1,3 @@
-// backend/models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
@@ -36,6 +35,10 @@ const UserSchema = new mongoose.Schema(
       sparse: true,
       trim: true,
     },
+    photoUrl: {
+      type: String,
+      default: null,
+    },
     password: {
       type: String,
       required: [true, 'Password is required'],
@@ -43,17 +46,17 @@ const UserSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['admin', 'operator'],
-      default: 'operator',
+      enum: ['admin', 'staff', 'operator'],
+      default: 'staff',
     },
     status: {
       type: String,
       enum: ['active', 'inactive'],
-      default: 'active',
+      default: 'inactive',
     },
     isActive: {
       type: Boolean,
-      default: true,
+      default: false,
     },
     lastLogin: {
       type: Date,
@@ -65,23 +68,21 @@ const UserSchema = new mongoose.Schema(
   }
 );
 
-// Sync isActive boolean with status string before saving
-UserSchema.pre('save', async function (next) {
-  // Synchronize isActive and status
-  if (this.isModified('status')) {
+// Sync status string and isActive boolean seamlessly before saving
+UserSchema.pre('save', async function () {
+  if (this.isModified('status') && !this.isModified('isActive')) {
     this.isActive = this.status === 'active';
-  } else if (this.isModified('isActive')) {
+  } else if (this.isModified('isActive') && !this.isModified('status')) {
     this.status = this.isActive ? 'active' : 'inactive';
   }
 
-  // Password hashing
-  if (!this.isModified('password')) return next();
+  if (!this.isModified('password') || !this.password) return;
+
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
-  next();
 });
 
-// Instance method to compare password
+// Compare entered plain-text password with stored hash
 UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
