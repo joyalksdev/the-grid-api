@@ -1,3 +1,4 @@
+// controllers/screenController.js
 const Screen = require('../models/Screen');
 const ActivityLog = require('../models/ActivityLog');
 const { calculateSessionCost, getPlayersCount } = require('../config/pricing');
@@ -157,11 +158,33 @@ const checkoutSession = async (req, res, next) => {
       ? screen.activeSession.toObject()
       : { ...screen.activeSession };
 
-    const { finalCost, paymentType } = req.body;
+    const { finalCost, paymentType, splitDetails } = req.body;
 
     let normalizedPayment = 'Cash';
-    if (paymentType && paymentType.toLowerCase().includes('upi')) {
-      normalizedPayment = 'UPI';
+    if (paymentType) {
+      const lower = paymentType.toLowerCase();
+      if (lower.includes('split')) {
+        normalizedPayment = 'Split';
+      } else if (lower.includes('upi') || lower.includes('gpay')) {
+        normalizedPayment = 'UPI';
+      } else if (lower.includes('card')) {
+        normalizedPayment = 'Card';
+      } else {
+        normalizedPayment = paymentType;
+      }
+    }
+
+    const finalAmount = finalCost !== undefined ? Number(finalCost) : Number(activeSessionData.estimatedCost);
+
+    // Validate Split amounts if payment is Split
+    let parsedSplitDetails = { cashAmount: 0, upiAmount: 0 };
+    if (normalizedPayment === 'Split') {
+      const cash = Number(splitDetails?.cashAmount || 0);
+      const upi = Number(splitDetails?.upiAmount || 0);
+      if (cash + upi !== finalAmount) {
+        return res.status(400).json({ error: 'Split payment cash and UPI amounts must equal the total final cost.' });
+      }
+      parsedSplitDetails = { cashAmount: cash, upiAmount: upi };
     }
 
     const logId = await getNextLogId();
@@ -173,9 +196,7 @@ const checkoutSession = async (req, res, next) => {
       timeZone: 'Asia/Kolkata'
     });
 
-    const finalAmount = finalCost !== undefined ? finalCost : activeSessionData.estimatedCost;
-
-    // Capture staff details from req.user
+    // Capture staff details from req.user securely via auth middleware
     const staffUser = req.user;
     const operatorName = staffUser ? (staffUser.name || staffUser.username) : 'System Staff';
 
@@ -186,6 +207,7 @@ const checkoutSession = async (req, res, next) => {
       duration: `${activeSessionData.duration} Mins`,
       cost: finalAmount,
       payment: normalizedPayment,
+      splitDetails: parsedSplitDetails,
       loggedBy: staffUser ? staffUser._id : null,
       operatorName,
       timestamp: new Date()
@@ -205,6 +227,7 @@ const checkoutSession = async (req, res, next) => {
       duration: `${activeSessionData.duration} Mins`,
       cost: finalAmount,
       payment: normalizedPayment,
+      splitDetails: parsedSplitDetails,
       loggedBy: staffUser ? staffUser._id : null,
       operatorName,
       time: timeString

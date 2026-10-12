@@ -1,5 +1,7 @@
+// routes/logRoutes.js
 const express = require('express');
 const router = express.Router();
+const { protect } = require('../middleware/authMiddleware');
 
 const {
   createLog,
@@ -9,6 +11,9 @@ const {
   updateLog,
   deleteLog
 } = require('../controllers/logController');
+
+// All log operations require authentication
+router.use(protect);
 
 router.post('/', createLog);
 router.get('/', getLogs);

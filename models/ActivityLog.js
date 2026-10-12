@@ -1,9 +1,6 @@
+// models/ActivityLog.js
 const mongoose = require('mongoose');
 
-/**
- * ActivityLog Schema
- * Represents a completed gaming session transaction.
- */
 const ActivityLogSchema = new mongoose.Schema(
   {
     logId: {
@@ -32,10 +29,13 @@ const ActivityLogSchema = new mongoose.Schema(
     },
     payment: {
       type: String,
-      enum: ['Cash', 'UPI', 'UPI/GPay', 'Card'],
+      enum: ['Cash', 'UPI', 'UPI/GPay', 'Split'],
       required: true
     },
-    // Staff / Operator tracking fields
+    splitDetails: {
+      cashAmount: { type: Number, default: 0 },
+      upiAmount: { type: Number, default: 0 }
+    },
     loggedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -62,7 +62,6 @@ const ActivityLogSchema = new mongoose.Schema(
   }
 );
 
-// Indexes for query performance
 ActivityLogSchema.index({ timestamp: -1 });
 ActivityLogSchema.index({ player: 1 });
 ActivityLogSchema.index({ loggedBy: 1 });

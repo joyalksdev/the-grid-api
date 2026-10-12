@@ -10,6 +10,9 @@ const {
   extendSession,
   checkoutSession
 } = require('../controllers/screenController');
+const { protect } = require('../middleware/authMiddleware');
+
+router.use(protect);
 
 /**
  * @route   GET /api/screens

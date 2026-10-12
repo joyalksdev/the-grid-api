@@ -1,13 +1,8 @@
+// controllers/logController.js
 const ActivityLog = require('../models/ActivityLog');
 
-/**
- * Helper to escape special regex characters safely
- */
 const escapeRegex = (text) => text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
 
-/**
- * Helper to generate the next sequential logId
- */
 const getNextLogId = async () => {
   const lastLog = await ActivityLog.findOne()
     .sort({ createdAt: -1, _id: -1 })
@@ -15,32 +10,34 @@ const getNextLogId = async () => {
     .lean();
 
   if (!lastLog || !lastLog.logId) {
-    return 'LOG-1001';
+    return 'LOG-001';
   }
 
   const currentNum = parseInt(lastLog.logId.replace('LOG-', ''), 10);
   if (isNaN(currentNum)) {
-    return 'LOG-1001';
+    return 'LOG-001';
   }
 
-  return `LOG-${currentNum + 1}`;
+  return `LOG-${String(currentNum + 1).padStart(3, '0')}`;
 };
 
-/**
- * @desc    Create a new activity log entry
- * @route   POST /api/logs
- * @access  Private (Staff / Operator / Admin / Owner)
- */
 const createLog = async (req, res) => {
   try {
-    const { player, screen, duration, cost, payment, startTime, endTime, timestamp } = req.body;
+    const { player, screen, duration, cost, payment, splitDetails, startTime, endTime, timestamp } = req.body;
 
     if (!player || !screen || !duration || cost === undefined || !payment) {
       return res.status(400).json({ error: 'Please provide all required log fields' });
     }
 
-    const logId = await getNextLogId();
+    if (payment === 'Split') {
+      const cash = Number(splitDetails?.cashAmount || 0);
+      const upi = Number(splitDetails?.upiAmount || 0);
+      if (cash + upi !== Number(cost)) {
+        return res.status(400).json({ error: 'Split payment amounts must equal the total cost' });
+      }
+    }
 
+    const logId = await getNextLogId();
     const staffUser = req.user;
     const operatorName = staffUser ? (staffUser.name || staffUser.username) : 'System Staff';
 
@@ -51,6 +48,10 @@ const createLog = async (req, res) => {
       duration: String(duration),
       cost: Number(cost),
       payment,
+      splitDetails: payment === 'Split' ? {
+        cashAmount: Number(splitDetails.cashAmount || 0),
+        upiAmount: Number(splitDetails.upiAmount || 0)
+      } : { cashAmount: 0, upiAmount: 0 },
       loggedBy: staffUser ? staffUser._id : null,
       operatorName,
       startTime: startTime ? new Date(startTime) : undefined,
@@ -66,6 +67,7 @@ const createLog = async (req, res) => {
       duration: newLog.duration,
       cost: newLog.cost,
       payment: newLog.payment,
+      splitDetails: newLog.splitDetails,
       loggedBy: newLog.loggedBy,
       operatorName: newLog.operatorName,
       startTime: newLog.startTime,
@@ -82,19 +84,13 @@ const createLog = async (req, res) => {
   }
 };
 
-/**
- * @desc    Get activity logs with search, date range/custom date, payment & screen filters
- * @route   GET /api/logs
- */
 const getLogs = async (req, res) => {
   try {
     const { search, dateRange, date, payment, screen } = req.query;
     let query = {};
     const now = new Date();
-
     const range = dateRange || date;
 
-    // Date Range Processing
     if (range && range !== 'all') {
       let start, end;
 
@@ -120,15 +116,14 @@ const getLogs = async (req, res) => {
       }
 
       if (start && end) {
-        query.timestamp = { $gte: start,$lte: end };
+        query.timestamp = { $gte: start, $lte: end };
       }
     } else if (!range) {
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      query.timestamp = { $gte: startOfDay,$lte: endOfDay };
+      query.timestamp = { $gte: startOfDay, $lte: endOfDay };
     }
 
-    // Payment Filter
     if (payment && payment !== 'all') {
       if (payment.toLowerCase() === 'upi') {
         query.payment = { $regex: /upi|gpay/i };
@@ -137,15 +132,14 @@ const getLogs = async (req, res) => {
       }
     }
 
-    // Screen Filter
     if (screen && screen !== 'all') {
-      query.screen = screen;
+      const safeScreen = escapeRegex(screen);
+      query.screen = { $regex: new RegExp(safeScreen, 'i') };
     }
 
-    // Search Filter
     if (search && search.trim()) {
       const safeSearch = escapeRegex(search.trim());
-      const searchRegex = { $regex: safeSearch,$options: 'i' };
+      const searchRegex = { $regex: safeSearch, $options: 'i' };
       query.$or = [
         { player: searchRegex },
         { logId: searchRegex },
@@ -167,6 +161,7 @@ const getLogs = async (req, res) => {
       duration: log.duration,
       cost: log.cost,
       payment: log.payment,
+      splitDetails: log.splitDetails || { cashAmount: 0, upiAmount: 0 },
       loggedBy: log.loggedBy,
       operatorName: log.operatorName || 'System Staff',
       startTime: log.startTime,
@@ -185,10 +180,6 @@ const getLogs = async (req, res) => {
   }
 };
 
-/**
- * @desc    Get aggregated metrics
- * @route   GET /api/logs/metrics
- */
 const getMetrics = async (req, res) => {
   try {
     const metrics = await ActivityLog.aggregate([
@@ -198,11 +189,23 @@ const getMetrics = async (req, res) => {
           totalRevenue: { $sum: '$cost' },
           totalSessions: { $sum: 1 },
           totalCash: {
-            $sum: {$cond: [{ $eq: [{$toLower: '$payment' }, 'cash'] }, '$cost', 0]
+            $sum: {
+              $cond: [
+                { $eq: [{ $toLower: '$payment' }, 'cash'] },
+                '$cost',
+                {
+                  $cond: [
+                    { $eq: [{ $toLower: '$payment' }, 'split'] },
+                    { $ifNull: ['$splitDetails.cashAmount', 0] },
+                    0
+                  ]
+                }
+              ]
             }
           },
           totalUPI: {
-            $sum: {$cond: [
+            $sum: {
+              $cond: [
                 {
                   $or: [
                     { $regexMatch: { input: '$payment', regex: /upi/i } },
@@ -210,7 +213,13 @@ const getMetrics = async (req, res) => {
                   ]
                 },
                 '$cost',
-                0
+                {
+                  $cond: [
+                    { $eq: [{ $toLower: '$payment' }, 'split'] },
+                    { $ifNull: ['$splitDetails.upiAmount', 0] },
+                    0
+                  ]
+                }
               ]
             }
           }
@@ -232,10 +241,6 @@ const getMetrics = async (req, res) => {
   }
 };
 
-/**
- * @desc    Get logs for a specific player
- * @route   GET /api/logs/player/:playerName
- */
 const getLogsByPlayer = async (req, res) => {
   try {
     const { playerName } = req.params;
@@ -256,6 +261,7 @@ const getLogsByPlayer = async (req, res) => {
       duration: log.duration,
       cost: log.cost,
       payment: log.payment,
+      splitDetails: log.splitDetails || { cashAmount: 0, upiAmount: 0 },
       loggedBy: log.loggedBy,
       operatorName: log.operatorName || 'System Staff',
       startTime: log.startTime,
@@ -274,29 +280,21 @@ const getLogsByPlayer = async (req, res) => {
   }
 };
 
-/**
- * @desc    Update an activity log entry with strict ownership check
- * @route   PUT /api/logs/:id
- * @access  Private
- */
 const updateLog = async (req, res) => {
   try {
     const { id } = req.params;
-    const { player, screen, duration, cost, payment } = req.body;
+    const { player, screen, duration, cost, payment, splitDetails } = req.body;
 
     const log = await ActivityLog.findById(id);
-
     if (!log) {
       return res.status(404).json({ error: 'Log entry not found' });
     }
 
-    // STRICT OWNERSHIP CHECK:
-    // Owner and Admin can edit any log.
-    // Staff/Operator can ONLY edit logs that they logged themselves.
-    const isElevatedRole = req.user && ['owner', 'admin'].includes(req.user.role);
-    const isCreator = log.loggedBy && req.user && log.loggedBy.toString() === req.user._id.toString();
+    const userRole = req.user?.role?.toLowerCase();
+    const isElevated = ['owner', 'admin'].includes(userRole);
+    const isCreator = log.loggedBy && req.user?._id && log.loggedBy.toString() === req.user._id.toString();
 
-    if (!isElevatedRole && !isCreator) {
+    if (!isElevated && !isCreator) {
       return res.status(403).json({
         error: 'Permission denied. Staff members can only edit logs created by themselves.'
       });
@@ -307,6 +305,14 @@ const updateLog = async (req, res) => {
     if (duration !== undefined) log.duration = String(duration);
     if (cost !== undefined) log.cost = Number(cost);
     if (payment !== undefined) log.payment = payment;
+    if (payment === 'Split' && splitDetails) {
+      log.splitDetails = {
+        cashAmount: Number(splitDetails.cashAmount || 0),
+        upiAmount: Number(splitDetails.upiAmount || 0)
+      };
+    } else if (payment && payment !== 'Split') {
+      log.splitDetails = { cashAmount: 0, upiAmount: 0 };
+    }
 
     const updatedLog = await log.save();
 
@@ -318,6 +324,7 @@ const updateLog = async (req, res) => {
       duration: updatedLog.duration,
       cost: updatedLog.cost,
       payment: updatedLog.payment,
+      splitDetails: updatedLog.splitDetails,
       loggedBy: updatedLog.loggedBy,
       operatorName: updatedLog.operatorName,
       startTime: updatedLog.startTime,
@@ -333,28 +340,20 @@ const updateLog = async (req, res) => {
   }
 };
 
-/**
- * @desc    Delete an activity log entry with strict ownership check
- * @route   DELETE /api/logs/:id
- * @access  Private
- */
 const deleteLog = async (req, res) => {
   try {
     const { id } = req.params;
 
     const log = await ActivityLog.findById(id);
-
     if (!log) {
       return res.status(404).json({ error: 'Log entry not found' });
     }
 
-    // STRICT OWNERSHIP CHECK:
-    // Owner and Admin can delete any log.
-    // Staff/Operator can ONLY delete logs that they logged themselves.
-    const isElevatedRole = req.user && ['owner', 'admin'].includes(req.user.role);
-    const isCreator = log.loggedBy && req.user && log.loggedBy.toString() === req.user._id.toString();
+    const userRole = req.user?.role?.toLowerCase();
+    const isElevated = ['owner', 'admin'].includes(userRole);
+    const isCreator = log.loggedBy && req.user?._id && log.loggedBy.toString() === req.user._id.toString();
 
-    if (!isElevatedRole && !isCreator) {
+    if (!isElevated && !isCreator) {
       return res.status(403).json({
         error: 'Permission denied. Staff members can only delete logs created by themselves.'
       });
