@@ -15,8 +15,8 @@ const TaskSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ['opening', 'closing', 'maintenance', 'cleaning', 'general'],
-      default: 'general',
+      enum: ['daily', 'deep-clean', 'opening', 'closing', 'maintenance', 'cleaning', 'general'],
+      default: 'daily',
     },
     priority: {
       type: String,
