@@ -59,24 +59,29 @@ const createLog = async (req, res) => {
       timestamp: timestamp ? new Date(timestamp) : new Date()
     });
 
+    // Populate the newly created log's loggedBy field for immediate client render sync
+    const populatedLog = await ActivityLog.findById(newLog._id)
+      .populate('loggedBy', 'name username email photoUrl role')
+      .lean();
+
     res.status(201).json({
-      _id: newLog._id,
-      id: newLog.logId,
-      player: newLog.player,
-      screen: newLog.screen,
-      duration: newLog.duration,
-      cost: newLog.cost,
-      payment: newLog.payment,
-      splitDetails: newLog.splitDetails,
-      loggedBy: newLog.loggedBy,
-      operatorName: newLog.operatorName,
-      startTime: newLog.startTime,
-      endTime: newLog.endTime,
-      time: newLog.timestamp
-        ? new Date(newLog.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      _id: populatedLog._id,
+      id: populatedLog.logId,
+      player: populatedLog.player,
+      screen: populatedLog.screen,
+      duration: populatedLog.duration,
+      cost: populatedLog.cost,
+      payment: populatedLog.payment,
+      splitDetails: populatedLog.splitDetails,
+      loggedBy: populatedLog.loggedBy,
+      operatorName: populatedLog.operatorName,
+      startTime: populatedLog.startTime,
+      endTime: populatedLog.endTime,
+      time: populatedLog.timestamp
+        ? new Date(populatedLog.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         : 'N/A',
-      timestamp: newLog.timestamp,
-      createdAt: newLog.createdAt
+      timestamp: populatedLog.timestamp,
+      createdAt: populatedLog.createdAt
     });
   } catch (error) {
     console.error('Error creating log:', error);
@@ -116,12 +121,12 @@ const getLogs = async (req, res) => {
       }
 
       if (start && end) {
-        query.timestamp = { $gte: start, $lte: end };
+        query.timestamp = { $gte: start,$lte: end };
       }
     } else if (!range) {
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      query.timestamp = { $gte: startOfDay, $lte: endOfDay };
+      query.timestamp = { $gte: startOfDay,$lte: endOfDay };
     }
 
     if (payment && payment !== 'all') {
@@ -139,7 +144,7 @@ const getLogs = async (req, res) => {
 
     if (search && search.trim()) {
       const safeSearch = escapeRegex(search.trim());
-      const searchRegex = { $regex: safeSearch, $options: 'i' };
+      const searchRegex = { $regex: safeSearch,$options: 'i' };
       query.$or = [
         { player: searchRegex },
         { logId: searchRegex },
@@ -148,7 +153,9 @@ const getLogs = async (req, res) => {
       ];
     }
 
+    // Populate user profile info (including photoUrl) for the staff member who logged the session
     const logs = await ActivityLog.find(query)
+      .populate('loggedBy', 'name username email photoUrl role')
       .sort({ timestamp: -1, createdAt: -1 })
       .select('-__v')
       .lean();
@@ -162,8 +169,8 @@ const getLogs = async (req, res) => {
       cost: log.cost,
       payment: log.payment,
       splitDetails: log.splitDetails || { cashAmount: 0, upiAmount: 0 },
-      loggedBy: log.loggedBy,
-      operatorName: log.operatorName || 'System Staff',
+      loggedBy: log.loggedBy, // Now contains populated user object with photoUrl
+      operatorName: log.operatorName || log.loggedBy?.name || 'System Staff',
       startTime: log.startTime,
       endTime: log.endTime,
       time: log.timestamp
@@ -189,8 +196,7 @@ const getMetrics = async (req, res) => {
           totalRevenue: { $sum: '$cost' },
           totalSessions: { $sum: 1 },
           totalCash: {
-            $sum: {
-              $cond: [
+            $sum: {$cond: [
                 { $eq: [{ $toLower: '$payment' }, 'cash'] },
                 '$cost',
                 {
@@ -204,8 +210,7 @@ const getMetrics = async (req, res) => {
             }
           },
           totalUPI: {
-            $sum: {
-              $cond: [
+            $sum: {$cond: [
                 {
                   $or: [
                     { $regexMatch: { input: '$payment', regex: /upi/i } },
@@ -249,6 +254,7 @@ const getLogsByPlayer = async (req, res) => {
     const logs = await ActivityLog.find({
       player: { $regex: new RegExp(`^${safePlayer}$`, 'i') }
     })
+      .populate('loggedBy', 'name username email photoUrl role')
       .sort({ timestamp: -1, createdAt: -1 })
       .select('-__v')
       .lean();
@@ -263,7 +269,7 @@ const getLogsByPlayer = async (req, res) => {
       payment: log.payment,
       splitDetails: log.splitDetails || { cashAmount: 0, upiAmount: 0 },
       loggedBy: log.loggedBy,
-      operatorName: log.operatorName || 'System Staff',
+      operatorName: log.operatorName || log.loggedBy?.name || 'System Staff',
       startTime: log.startTime,
       endTime: log.endTime,
       time: log.timestamp
@@ -314,7 +320,11 @@ const updateLog = async (req, res) => {
       log.splitDetails = { cashAmount: 0, upiAmount: 0 };
     }
 
-    const updatedLog = await log.save();
+    await log.save();
+
+    const updatedLog = await ActivityLog.findById(log._id)
+      .populate('loggedBy', 'name username email photoUrl role')
+      .lean();
 
     res.json({
       _id: updatedLog._id,
@@ -326,7 +336,7 @@ const updateLog = async (req, res) => {
       payment: updatedLog.payment,
       splitDetails: updatedLog.splitDetails,
       loggedBy: updatedLog.loggedBy,
-      operatorName: updatedLog.operatorName,
+      operatorName: updatedLog.operatorName || updatedLog.loggedBy?.name || 'System Staff',
       startTime: updatedLog.startTime,
       endTime: updatedLog.endTime,
       time: updatedLog.timestamp

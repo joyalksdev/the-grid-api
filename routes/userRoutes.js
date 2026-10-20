@@ -26,6 +26,18 @@ router.use(protect);
 // @access  Private (Admin & Operators)
 router.put('/profile', upload.single('avatar'), updateUserProfile);
 
+// @route   GET /api/users/:id
+// @desc    Get user by ID
+// @route   PUT /api/users/:id
+// @desc    Update user details by ID
+// @route   DELETE /api/users/:id
+// @desc    Delete user account
+router.route('/:id')
+  .get(getUserById)
+  .put(updateUser)
+  .delete(deleteUser);
+
+  
 // ---------------------------------------------------------------------------
 // 3. ADMIN-ONLY MANAGEMENT ROUTES
 // ---------------------------------------------------------------------------
@@ -40,16 +52,6 @@ router.route('/')
   .get(getUsers)
   .post(createUser);
 
-// @route   GET /api/users/:id
-// @desc    Get user by ID
-// @route   PUT /api/users/:id
-// @desc    Update user details by ID
-// @route   DELETE /api/users/:id
-// @desc    Delete user account
-router.route('/:id')
-  .get(getUserById)
-  .put(updateUser)
-  .delete(deleteUser);
 
 // @route   PATCH /api/users/:id/status
 // @desc    Toggle user status (Active / Inactive)
