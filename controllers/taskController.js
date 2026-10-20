@@ -169,4 +169,4 @@ module.exports = {
   updateTaskStatus,
   updateTask,
   deleteTask,
-};
+}
