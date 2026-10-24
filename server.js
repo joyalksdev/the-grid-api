@@ -97,7 +97,7 @@ app.get('/health', (req, res) => {
 });
 
 // strict authLimiter to the auth routes pipeline
-app.use('/api/auth', authLimiter, require('./routes/authRoutes'));
+app.use('/api/auth', require('./routes/authRoutes'));
 
 app.use('/api/screens', require('./routes/screenRoutes'));
 app.use('/api/pricing', require('./routes/pricingRoutes'));
