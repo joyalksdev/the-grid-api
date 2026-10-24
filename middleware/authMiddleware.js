@@ -22,8 +22,9 @@ const protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key');
     req.user = await User.findById(decoded.id).select('-password');
 
-    if (!req.user) {
-      return res.status(401).json({ error: 'User no longer exists' });
+    // FIX: Instant session revocation check for inactive or deleted users
+    if (!req.user || !req.user.isActive) {
+      return res.status(401).json({ error: 'User account is inactive or no longer exists' });
     }
 
     next();

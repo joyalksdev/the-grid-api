@@ -21,6 +21,14 @@ const initSocket = (server, allowedOrigins) => {
       socket.join(`screen_${screenId}`);
     });
 
+    // Register user-specific private room for real-time status updates/kick-outs
+    socket.on('join_user', (userId) => {
+      if (userId) {
+        socket.join(`user_${userId}`);
+        console.log(`👤 User joined private room: user_${userId}`);
+      }
+    });
+
     socket.on('disconnect', (reason) => {
       console.log(`❌ Socket disconnected (${socket.id}): ${reason}`);
     });

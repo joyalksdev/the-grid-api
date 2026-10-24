@@ -1,6 +1,7 @@
 // backend/controllers/userController.js
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
+const { getIO } = require('../socket');
 
 // @desc    Get all users / staff members
 // @route   GET /api/users
@@ -52,7 +53,6 @@ const createUser = async (req, res) => {
       return res.status(400).json({ message: 'Username or email already in use' });
     }
 
-    // Auto-generate userId if not passed explicitly (e.g. USR-98213 or based on username)
     const generatedUserId = userId || `usr_${username.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Math.floor(1000 + Math.random() * 9000)}`;
 
     const user = await User.create({
@@ -60,7 +60,7 @@ const createUser = async (req, res) => {
       name,
       email: email ? email.toLowerCase() : undefined,
       username: username.toLowerCase(),
-      password, // Pre-save hook in User model will auto-hash this safely
+      password,
       role: role || 'operator',
       isActive: true,
     });
@@ -79,8 +79,6 @@ const createUser = async (req, res) => {
   }
 };
 
-
-
 // @desc    Update user details (Role, Name, Email)
 // @route   PUT /api/users/:id
 // @access  Private/Admin
@@ -96,17 +94,27 @@ const updateUser = async (req, res) => {
     user.email = req.body.email ? req.body.email.toLowerCase() : user.email;
     user.role = req.body.role || user.role;
 
+    let wasActive = user.isActive;
     if (typeof req.body.isActive === 'boolean') {
       user.isActive = req.body.isActive;
     }
 
-    // FIX: Remove manual bcrypt hashing to prevent double-hashing.
-    // The pre-save hook in the User model will automatically catch this and hash it.
     if (req.body.password && req.body.password.trim() !== '') {
       user.password = req.body.password;
     }
 
     const updatedUser = await user.save();
+
+    // If admin changed active to false, force real-time kick-out
+    if (wasActive && !updatedUser.isActive) {
+      try {
+        getIO().to(`user_${updatedUser._id}`).emit('account_deactivated', {
+          message: 'Your account has been deactivated by an administrator.',
+        });
+      } catch (err) {
+        console.error('Socket emit error:', err);
+      }
+    }
 
     res.status(200).json({
       _id: updatedUser._id,
@@ -121,7 +129,6 @@ const updateUser = async (req, res) => {
   }
 };
 
-
 // @desc    Toggle staff active/inactive status
 // @route   PATCH /api/users/:id/status
 // @access  Private/Admin
@@ -135,6 +142,17 @@ const toggleUserStatus = async (req, res) => {
 
     user.isActive = !user.isActive;
     await user.save();
+
+    // If toggled to inactive, trigger immediate real-time kick-out socket event
+    if (!user.isActive) {
+      try {
+        getIO().to(`user_${user._id}`).emit('account_deactivated', {
+          message: 'Your account status has been changed to inactive by an admin.',
+        });
+      } catch (err) {
+        console.error('Socket emit error:', err);
+      }
+    }
 
     res.status(200).json({
       message: `User status changed to ${user.isActive ? 'active' : 'inactive'}`,
@@ -161,6 +179,15 @@ const deleteUser = async (req, res) => {
       return res.status(400).json({ message: 'You cannot delete your own logged-in account' });
     }
 
+    // Notify user before deleting account
+    try {
+      getIO().to(`user_${user._id}`).emit('account_deactivated', {
+        message: 'Your account has been deleted by an administrator.',
+      });
+    } catch (err) {
+      console.error('Socket emit error:', err);
+    }
+
     await user.deleteOne();
     res.status(200).json({ message: 'User deleted successfully' });
   } catch (error) {
@@ -182,7 +209,6 @@ const updateUserProfile = async (req, res) => {
     if (req.body.name) user.name = req.body.name.trim();
     if (req.body.phone) user.phone = req.body.phone.trim();
 
-    // Attach Cloudinary image URL if uploaded via Multer
     if (req.file && req.file.path) {
       user.photoUrl = req.file.path;
     }
