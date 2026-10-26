@@ -1,28 +1,28 @@
-// routes/hardwareRoutes.js
+// backend/routes/hardwareRoutes.js
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../middleware/authMiddleware');
 const {
-  getDevices,
-  createDevice,
-  updateDevice,
-  createServiceLog,
-  getAllServiceLogs,
-  updateServiceLog,
+  getHardware,
+  createHardware,
+  updateHardware,
+  reportIssue,
+  resolveIssue,
+  deleteHardware,
 } = require('../controllers/hardwareController');
+const { protect, authorizeRoles } = require('../middleware/authMiddleware');
 
+// All hardware endpoints require authentication
 router.use(protect);
 
 router.route('/')
-  .get(getDevices)
-  .post(createDevice);
+  .get(getHardware)
+  .post(authorizeRoles('admin', 'owner'), createHardware);
 
 router.route('/:id')
-  .put(updateDevice);
+  .put(authorizeRoles('admin', 'owner'), updateHardware)
+  .delete(authorizeRoles('admin', 'owner'), deleteHardware);
 
-router.post('/:id/service', createServiceLog);
-
-router.get('/service-logs/all', getAllServiceLogs);
-router.put('/service-logs/:logId', updateServiceLog);
+router.route('/:id/issue').patch(reportIssue);
+router.route('/:id/resolve').patch(resolveIssue);
 
 module.exports = router;

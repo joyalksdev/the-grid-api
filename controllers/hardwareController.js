@@ -1,210 +1,175 @@
-// controllers/hardwareController.js
-const HardwareDevice = require('../models/HardwareDevice');
-const ServiceLog = require('../models/ServiceLog');
-const { getIO } = require('../socket');
+// backend/controllers/hardwareController.js
+const Hardware = require('../models/HardwareDevice');
 
-/**
- * @desc    Get all hardware devices with optional type/status filter
- * @route   GET /api/hardware
- */
-const getDevices = async (req, res, next) => {
+// @desc    Get all hardware items with filtering & search
+// @route   GET /api/hardware
+// @access  Private
+const getHardware = async (req, res) => {
   try {
-    const { type, status, search } = req.query;
-    const query = {};
+    const { category, status, search } = req.query;
+    let query = {};
 
-    if (type && type !== 'all') query.type = type;
-    if (status && status !== 'all') query.status = status;
-    if (search && search.trim()) {
+    if (category && category !== 'all') {
+      query.category = { $regex: new RegExp(`^${category}$`, 'i') };
+    }
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+    if (search) {
       query.$or = [
-        { tagId: { $regex: search.trim(),$options: 'i' } },
-        { name: { $regex: search.trim(),$options: 'i' } },
-        { assignedScreen: { $regex: search.trim(),$options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { assetId: { $regex: search, $options: 'i' } },
+        { serialNumber: { $regex: search, $options: 'i' } },
       ];
     }
 
-    const devices = await HardwareDevice.find(query).sort({ tagId: 1 }).lean();
-    res.json(devices);
+    const hardware = await Hardware.find(query).sort({ createdAt: -1 });
+    res.status(200).json(hardware);
   } catch (error) {
-    next(error);
+    res.status(500).json({ message: error.message || 'Failed to fetch hardware assets' });
   }
 };
 
-/**
- * @desc    Register a new hardware device with a unique Sticker Tag ID
- * @route   POST /api/hardware
- */
-const createDevice = async (req, res, next) => {
+// @desc    Register new hardware asset
+// @route   POST /api/hardware
+// @access  Private (Admin/Owner)
+const createHardware = async (req, res) => {
   try {
-    const { tagId, name, type, assignedScreen, condition, notes } = req.body;
+    const { name, category, station, serialNumber, image } = req.body;
 
-    const existing = await HardwareDevice.findOne({ tagId: tagId.toUpperCase() });
-    if (existing) {
-      return res.status(400).json({ error: `Hardware tag ${tagId.toUpperCase()} is already in use` });
+    if (!name || !category || !serialNumber) {
+      return res.status(400).json({ message: 'Name, category, and serial number are required' });
     }
 
-    const newDevice = await HardwareDevice.create({
-      tagId: tagId.toUpperCase(),
+    const existingSerial = await Hardware.findOne({ serialNumber });
+    if (existingSerial) {
+      return res.status(400).json({ message: 'An asset with this serial number already exists' });
+    }
+
+    const prefix = category.substring(0, 3).toUpperCase();
+    const randomNum = Math.floor(10 + Math.random() * 90);
+    const assetId = `HW-${prefix}-${randomNum}`;
+
+    const hardware = await Hardware.create({
+      assetId,
       name,
-      type,
-      assignedScreen: assignedScreen || 'Unassigned',
-      condition: condition || 'good',
-      notes,
+      category,
+      station: station || 'Storage / Spare',
+      serialNumber,
+      image: image || undefined,
+      status: 'active',
+      lastMaintenance: new Date(),
     });
 
-    getIO().emit('hardware_created', newDevice);
-
-    res.status(201).json(newDevice);
+    res.status(201).json(hardware);
   } catch (error) {
-    next(error);
+    res.status(500).json({ message: error.message || 'Failed to register hardware' });
   }
 };
 
-/**
- * @desc    Update device details or status
- * @route   PUT /api/hardware/:id
- */
-const updateDevice = async (req, res, next) => {
+// @desc    Update hardware asset details
+// @route   PUT /api/hardware/:id
+// @access  Private (Admin/Owner)
+const updateHardware = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { name, type, assignedScreen, status, condition, notes } = req.body;
-
-    const updatedDevice = await HardwareDevice.findByIdAndUpdate(
-      id,
-      { name, type, assignedScreen, status, condition, notes },
-      { new: true, runValidators: true }
-    ).lean();
-
-    if (!updatedDevice) {
-      return res.status(404).json({ error: 'Device not found' });
+    const hardware = await Hardware.findById(req.params.id);
+    if (!hardware) {
+      return res.status(404).json({ message: 'Hardware asset not found' });
     }
 
-    getIO().emit('hardware_updated', updatedDevice);
+    hardware.name = req.body.name || hardware.name;
+    hardware.category = req.body.category || hardware.category;
+    hardware.station = req.body.station || hardware.station;
+    hardware.serialNumber = req.body.serialNumber || hardware.serialNumber;
+    hardware.image = req.body.image || hardware.image;
+    hardware.status = req.body.status || hardware.status;
 
-    res.json(updatedDevice);
+    const updated = await hardware.save();
+    res.status(200).json(updated);
   } catch (error) {
-    next(error);
+    res.status(500).json({ message: error.message || 'Failed to update hardware' });
   }
 };
 
-/**
- * @desc    Create a new maintenance/service log entry for a device
- * @route   POST /api/hardware/:id/service
- */
-const createServiceLog = async (req, res, next) => {
+// @desc    Report issue and move asset to maintenance
+// @route   PATCH /api/hardware/:id/issue
+// @access  Private
+const reportIssue = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { issueDescription, actionTaken, cost, status } = req.body;
+    const { category, priority, description } = req.body;
+    const hardware = await Hardware.findById(req.params.id);
 
-    const device = await HardwareDevice.findById(id);
-    if (!device) {
-      return res.status(404).json({ error: 'Device not found' });
+    if (!hardware) {
+      return res.status(404).json({ message: 'Hardware asset not found' });
     }
 
-    const serviceLog = await ServiceLog.create({
-      device: device._id,
-      tagId: device.tagId,
-      issueDescription,
-      actionTaken,
-      servicedBy: req.user._id,
-      cost: Number(cost) || 0,
-      status: status || 'reported',
-      resolvedAt: status === 'resolved' ? new Date() : null,
+    hardware.status = 'maintenance';
+    hardware.activeIssue = {
+      category: category || 'General Hardware',
+      priority: priority || 'medium',
+      description: description || 'Issue reported by staff',
+      reportedAt: new Date(),
+    };
+
+    await hardware.save();
+    res.status(200).json({ message: 'Asset flagged for maintenance', hardware });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to report hardware issue' });
+  }
+};
+
+// @desc    Resolve issue, log maintenance history, and reactivate hardware
+// @route   PATCH /api/hardware/:id/resolve
+// @access  Private
+const resolveIssue = async (req, res) => {
+  try {
+    const { resolutionType, notes } = req.body;
+    const hardware = await Hardware.findById(req.params.id);
+
+    if (!hardware) {
+      return res.status(404).json({ message: 'Hardware asset not found' });
+    }
+
+    hardware.maintenanceHistory.push({
+      resolutionType: resolutionType || 'Serviced',
+      notes: notes || 'No additional notes provided',
+      resolvedAt: new Date(),
     });
 
-    // Update Device Service Stats & Status automatically
-    device.totalServiceCount += 1;
-    device.lastServicedAt = new Date();
-    if (status === 'in_repair' || status === 'reported') {
-      device.status = 'maintenance';
-    } else if (status === 'resolved') {
-      device.status = 'repaired';
-    }
-    await device.save();
+    hardware.status = 'active';
+    hardware.activeIssue = undefined;
+    hardware.lastMaintenance = new Date();
 
-    const populatedLog = await ServiceLog.findById(serviceLog._id)
-      .populate('servicedBy', 'name role')
-      .lean();
-
-    getIO().emit('service_log_created', populatedLog);
-    getIO().emit('hardware_updated', device);
-
-    res.status(201).json({ serviceLog: populatedLog, device });
+    await hardware.save();
+    res.status(200).json({ message: 'Hardware reactivated successfully', hardware });
   } catch (error) {
-    next(error);
+    res.status(500).json({ message: error.message || 'Failed to resolve hardware issue' });
   }
 };
 
-/**
- * @desc    Get all service logs for a specific device or all devices across the lounge
- * @route   GET /api/hardware/service-logs
- */
-const getAllServiceLogs = async (req, res, next) => {
+// @desc    Delete hardware asset permanently
+// @route   DELETE /api/hardware/:id
+// @access  Private (Admin/Owner)
+const deleteHardware = async (req, res) => {
   try {
-    const { status } = req.query;
-    const query = {};
-    if (status && status !== 'all') query.status = status;
+    const hardware = await Hardware.findById(req.params.id);
 
-    const logs = await ServiceLog.find(query)
-      .populate('device', 'name tagId type assignedScreen')
-      .populate('servicedBy', 'name role')
-      .sort({ createdAt: -1 })
-      .lean();
+    if (!hardware) {
+      return res.status(404).json({ message: 'Hardware asset not found' });
+    }
 
-    res.json(logs);
+    await hardware.deleteOne();
+    res.status(200).json({ message: 'Hardware asset permanently deleted' });
   } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * @desc    Update service log repair status (e.g. resolve issue & record final cost)
- * @route   PUT /api/hardware/service-logs/:logId
- */
-const updateServiceLog = async (req, res, next) => {
-  try {
-    const { logId } = req.params;
-    const { actionTaken, cost, status } = req.body;
-
-    const updateData = {};
-    if (actionTaken !== undefined) updateData.actionTaken = actionTaken;
-    if (cost !== undefined) updateData.cost = Number(cost);
-    if (status) {
-      updateData.status = status;
-      if (status === 'resolved') updateData.resolvedAt = new Date();
-    }
-
-    const log = await ServiceLog.findByIdAndUpdate(logId, updateData, {
-      new: true,
-      runValidators: true,
-    })
-      .populate('device')
-      .populate('servicedBy', 'name role');
-
-    if (!log) {
-      return res.status(404).json({ error: 'Service log not found' });
-    }
-
-    // Sync device status if resolved
-    if (status === 'resolved' && log.device) {
-      await HardwareDevice.findByIdAndUpdate(log.device._id, {
-        status: 'active',
-        condition: 'good',
-      });
-    }
-
-    getIO().emit('service_log_updated', log);
-
-    res.json(log);
-  } catch (error) {
-    next(error);
+    res.status(500).json({ message: error.message || 'Failed to delete hardware asset' });
   }
 };
 
 module.exports = {
-  getDevices,
-  createDevice,
-  updateDevice,
-  createServiceLog,
-  getAllServiceLogs,
-  updateServiceLog,
+  getHardware,
+  createHardware,
+  updateHardware,
+  reportIssue,
+  resolveIssue,
+  deleteHardware,
 };

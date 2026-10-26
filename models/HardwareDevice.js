@@ -1,60 +1,67 @@
-// models/HardwareDevice.js
+// backend/models/Hardware.js
 const mongoose = require('mongoose');
 
-const HardwareDeviceSchema = new mongoose.Schema(
+const hardwareSchema = new mongoose.Schema(
   {
-    tagId: {
+    assetId: {
       type: String,
-      required: [true, 'Tag ID sticker label is required'],
+      required: true,
       unique: true,
-      uppercase: true,
       trim: true,
+      uppercase: true,
     },
     name: {
       type: String,
       required: [true, 'Device name is required'],
       trim: true,
     },
-    type: {
+    category: {
       type: String,
-      enum: ['controller', 'console', 'simrig', 'tv_display', 'headset', 'other'],
-      required: true,
+      required: [true, 'Category is required'],
+      enum: ['Console', 'PC Setup', 'Audio', 'Display', 'Peripheral'],
     },
-    assignedScreen: {
+    station: {
       type: String,
+      default: 'Storage / Spare',
       trim: true,
-      default: 'Unassigned',
+    },
+    serialNumber: {
+      type: String,
+      required: [true, 'Serial number is required'],
+      unique: true,
+      trim: true,
     },
     status: {
       type: String,
-      enum: ['active', 'maintenance', 'repaired', 'decommissioned'],
+      required: true,
+      enum: ['active', 'maintenance', 'retired'],
       default: 'active',
     },
-    condition: {
+    image: {
       type: String,
-      enum: ['excellent', 'good', 'fair', 'poor'],
-      default: 'good',
+      default: 'https://images.unsplash.com/photo-1606813907291-d86efa9b94db?auto=format&fit=crop&w=400&q=80',
     },
-    notes: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    totalServiceCount: {
-      type: Number,
-      default: 0,
-    },
-    lastServicedAt: {
+    lastMaintenance: {
       type: Date,
-      default: null,
+      default: Date.now,
     },
+    activeIssue: {
+      category: { type: String },
+      priority: { type: String, enum: ['low', 'medium', 'high'] },
+      description: { type: String },
+      reportedAt: { type: Date },
+    },
+    maintenanceHistory: [
+      {
+        resolutionType: { type: String },
+        notes: { type: String },
+        resolvedAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   {
     timestamps: true,
   }
 );
 
-HardwareDeviceSchema.index({ tagId: 1 });
-HardwareDeviceSchema.index({ status: 1, type: 1 });
-
-module.exports = mongoose.model('HardwareDevice', HardwareDeviceSchema);
+module.exports = mongoose.model('Hardware', hardwareSchema);

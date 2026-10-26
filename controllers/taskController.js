@@ -3,23 +3,23 @@ const Task = require('../models/Task');
 const { getIO } = require('../socket');
 
 /**
- * @desc    Get all tasks with optional status & category filtering
+ * @desc    Get all tasks with optional status, taskType, & priority filtering
  * @route   GET /api/tasks
  */
 const getTasks = async (req, res, next) => {
   try {
-    const { status, category, priority } = req.query;
+    const { status, taskType, priority } = req.query;
     const query = {};
 
     if (status && status !== 'all') query.status = status;
-    if (category && category !== 'all') query.category = category;
+    if (taskType && taskType !== 'all') query.taskType = taskType;
     if (priority && priority !== 'all') query.priority = priority;
 
     const tasks = await Task.find(query)
-      .populate('assignedTo', 'name email avatar role')
+      .populate('assignedTo', 'name email avatar role status isActive')
       .populate('createdBy', 'name role')
       .populate('completedBy', 'name role')
-      .sort({ createdAt: -1 })
+      .sort({ orderIndex: 1, createdAt: -1 })
       .lean();
 
     res.json(tasks);
@@ -34,25 +34,25 @@ const getTasks = async (req, res, next) => {
  */
 const createTask = async (req, res, next) => {
   try {
-    const { title, description, category, priority, assignedTo, dueDate, notes } = req.body;
+    const { title, description, taskType, priority, assignedTo, scheduledFor, notes } = req.body;
 
     const newTask = await Task.create({
       title,
       description,
-      category,
-      priority,
+      taskType: taskType || 'daily',
+      priority: priority || 'medium',
       assignedTo: assignedTo || null,
       createdBy: req.user._id,
-      dueDate: dueDate ? new Date(dueDate) : null,
+      scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
       notes,
     });
 
     const populatedTask = await Task.findById(newTask._id)
-      .populate('assignedTo', 'name email avatar role')
+      .populate('assignedTo', 'name email avatar role status isActive')
       .populate('createdBy', 'name role')
       .lean();
 
-    // Broadcast Socket Event
+    // Instant Socket Broadcast
     getIO().emit('task_created', populatedTask);
 
     res.status(201).json(populatedTask);
@@ -62,7 +62,7 @@ const createTask = async (req, res, next) => {
 };
 
 /**
- * @desc    Update task status (pending -> in_progress -> completed -> verified) & broadcast
+ * @desc    Update task status & broadcast via Socket
  * @route   PATCH /api/tasks/:id/status
  */
 const updateTaskStatus = async (req, res, next) => {
@@ -85,7 +85,7 @@ const updateTaskStatus = async (req, res, next) => {
       new: true,
       runValidators: true,
     })
-      .populate('assignedTo', 'name email avatar role')
+      .populate('assignedTo', 'name email avatar role status isActive')
       .populate('createdBy', 'name role')
       .populate('completedBy', 'name role')
       .lean();
@@ -94,7 +94,7 @@ const updateTaskStatus = async (req, res, next) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    // Broadcast Socket Event
+    // Instant Socket Broadcast
     getIO().emit('task_status_changed', updatedTask);
 
     res.json(updatedTask);
@@ -104,28 +104,28 @@ const updateTaskStatus = async (req, res, next) => {
 };
 
 /**
- * @desc    Update full task details
+ * @desc    Update full task details & broadcast
  * @route   PUT /api/tasks/:id
  */
 const updateTask = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { title, description, category, priority, assignedTo, dueDate, notes } = req.body;
+    const { title, description, taskType, priority, assignedTo, scheduledFor, notes } = req.body;
 
     const updatedTask = await Task.findByIdAndUpdate(
       id,
       {
         title,
         description,
-        category,
+        taskType,
         priority,
         assignedTo: assignedTo || null,
-        dueDate: dueDate ? new Date(dueDate) : null,
+        scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
         notes,
       },
       { new: true, runValidators: true }
     )
-      .populate('assignedTo', 'name email avatar role')
+      .populate('assignedTo', 'name email avatar role status isActive')
       .populate('createdBy', 'name role')
       .populate('completedBy', 'name role')
       .lean();
@@ -169,4 +169,4 @@ module.exports = {
   updateTaskStatus,
   updateTask,
   deleteTask,
-}
+};

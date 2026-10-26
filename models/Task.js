@@ -1,4 +1,4 @@
-// models/Task.js
+// backend/models/Task.js
 const mongoose = require('mongoose');
 
 const TaskSchema = new mongoose.Schema(
@@ -13,10 +13,14 @@ const TaskSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    taskType: {
+      type: String,
+      enum: ['daily', 'regular', 'scheduled'],
+      default: 'daily',
+    },
     category: {
       type: String,
-      enum: ['daily', 'deep-clean', 'opening', 'closing', 'maintenance', 'cleaning', 'general'],
-      default: 'daily',
+      default: 'general',
     },
     priority: {
       type: String,
@@ -47,9 +51,25 @@ const TaskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    dueDate: {
+    scheduledFor: {
       type: Date,
       default: null,
+    },
+    isOverdue: {
+      type: Boolean,
+      default: false,
+    },
+    lastResetAt: {
+      type: Date,
+      default: Date.now,
+    },
+    isNotified: {
+      type: Boolean,
+      default: false,
+    },
+    orderIndex: {
+      type: Number,
+      default: 0,
     },
     notes: {
       type: String,
@@ -62,7 +82,7 @@ const TaskSchema = new mongoose.Schema(
   }
 );
 
-TaskSchema.index({ status: 1, category: 1 });
+TaskSchema.index({ status: 1, taskType: 1 });
 TaskSchema.index({ assignedTo: 1 });
 
 module.exports = mongoose.model('Task', TaskSchema);

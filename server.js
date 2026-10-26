@@ -10,6 +10,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 const hpp = require('hpp');
 const connectDB = require('./config/db');
 const { initSocket } = require('./socket');
+const initTaskScheduler = require('./jobs/taskScheduler');
 
 dotenv.config();
 
@@ -25,14 +26,13 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 
-// server.js
 const envOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim())
   : [];
 
 const allowedOrigins = [
   ...envOrigins,
-  'https://gridgaming.vercel.app', // Explicitly added Vercel domain
+  'https://gridgaming.vercel.app',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];
@@ -53,8 +53,10 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Attach Socket.io to HTTP Server
+
 initSocket(server, allowedOrigins);
+
+initTaskScheduler();
 
 app.use(
   helmet({
@@ -71,10 +73,9 @@ const globalLimiter = rateLimit({
   message: { error: 'Too many requests from this IP. Please try again after 15 minutes.' },
 });
 
-// Strict Auth Rate Limiter (Brute-force protection)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 login/register attempts per window
+  windowMs: 15 * 60 * 1000,
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: false,
@@ -96,9 +97,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// strict authLimiter to the auth routes pipeline
 app.use('/api/auth', require('./routes/authRoutes'));
-
 app.use('/api/screens', require('./routes/screenRoutes'));
 app.use('/api/pricing', require('./routes/pricingRoutes'));
 app.use('/api/logs', require('./routes/logRoutes'));
