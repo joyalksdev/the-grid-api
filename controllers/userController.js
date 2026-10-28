@@ -195,7 +195,7 @@ const deleteUser = async (req, res) => {
   }
 };
 
-// @desc    Update current logged-in user profile
+// @desc    Update current logged-in user profile info & avatar photo
 // @route   PUT /api/users/profile
 // @access  Private
 const updateUserProfile = async (req, res) => {
@@ -209,6 +209,19 @@ const updateUserProfile = async (req, res) => {
     if (req.body.name) user.name = req.body.name.trim();
     if (req.body.phone) user.phone = req.body.phone.trim();
 
+    // Username sanitization and uniqueness check
+    if (req.body.username) {
+      const sanitizedUsername = req.body.username.toLowerCase().replace(/\s+/g, '');
+      
+      if (sanitizedUsername !== user.username) {
+        const usernameExists = await User.findOne({ username: sanitizedUsername });
+        if (usernameExists) {
+          return res.status(400).json({ message: 'Username is already taken by another user' });
+        }
+        user.username = sanitizedUsername;
+      }
+    }
+
     if (req.file && req.file.path) {
       user.photoUrl = req.file.path;
     }
@@ -219,6 +232,7 @@ const updateUserProfile = async (req, res) => {
       _id: updatedUser._id,
       userId: updatedUser.userId,
       name: updatedUser.name,
+      username: updatedUser.username,
       email: updatedUser.email,
       phone: updatedUser.phone,
       role: updatedUser.role,
@@ -226,9 +240,10 @@ const updateUserProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('Update profile error:', error);
-    res.status(500).json({ message: 'Server error updating profile' });
+    res.status(500).json({ message: error.message || 'Server error updating profile' });
   }
 };
+
 
 module.exports = {
   getUsers,

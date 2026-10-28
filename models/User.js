@@ -16,6 +16,9 @@ const UserSchema = new mongoose.Schema(
       sparse: true,
       trim: true,
       lowercase: true,
+      // Automatically strip all spaces and lowercase when saved/updated
+      set: (v) => (v ? v.toLowerCase().replace(/\s+/g, '') : v),
+      match: [/^\S+$/, 'Username cannot contain spaces'],
     },
     name: {
       type: String,
