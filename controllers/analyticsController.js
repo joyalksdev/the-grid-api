@@ -1,3 +1,4 @@
+// backend/controllers/analyticsController.js
 const ActivityLog = require('../models/ActivityLog');
 const HardwareDevice = require('../models/HardwareDevice');
 const ServiceLog = require('../models/ServiceLog');
@@ -61,8 +62,8 @@ const getDashboardAnalytics = async (req, res, next) => {
     const logMatchQuery = {};
     if (start && end) {
       logMatchQuery.$or = [
-        { timestamp: { $gte: start,$lte: end } },
-        { createdAt: { $gte: start,$lte: end } }
+        { timestamp: { $gte: start, $lte: end } },
+        { createdAt: { $gte: start, $lte: end } }
       ];
     }
 
@@ -76,11 +77,11 @@ const getDashboardAnalytics = async (req, res, next) => {
           totalSessions: { $sum: 1 },
           totalDurationMins: { $sum: safeDurationExpr },
           cashRevenue: {
-            $sum: {$cond: [{ $eq: [{$toLower: '$payment' }, 'cash'] }, '$cost', 0]
-            }
+            $sum: { $cond: [{ $eq: [{ $toLower: '$payment' }, 'cash'] }, '$cost', 0] }
           },
           upiRevenue: {
-            $sum: {$cond: [
+            $sum: {
+              $cond: [
                 {
                   $or: [
                     { $regexMatch: { input: '$payment', regex: /upi/i } },
@@ -123,7 +124,10 @@ const getDashboardAnalytics = async (req, res, next) => {
             }
           },
           revenue: { $sum: '$cost' },
-          sessions: { $sum: 1 }         }       },       {$sort: { _id: 1 } }
+          sessions: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
     ]);
 
     const chartData = dailyTrend
@@ -147,9 +151,12 @@ const getDashboardAnalytics = async (req, res, next) => {
       {
         $group: {
           _id: {
-            $hour: {$ifNull: ['$timestamp', '$createdAt'] }
+            $hour: { $ifNull: ['$timestamp', '$createdAt'] }
           },
-          count: { $sum: 1 }         }       },       {$sort: { count: -1 } }
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
     ]);
 
     const peakHourIndex = hourlyDistribution.length > 0 ? hourlyDistribution[0]._id : 18;
@@ -187,7 +194,8 @@ const getDashboardAnalytics = async (req, res, next) => {
           totalMins: { $sum: safeDurationExpr }
         }
       },
-      { $sort: { spent: -1 } },       {$limit: 5 }
+      { $sort: { spent: -1 } },
+      { $limit: 5 }
     ]);
 
     const topPlayers = topGamers.map((p) => ({
@@ -207,18 +215,25 @@ const getDashboardAnalytics = async (req, res, next) => {
           sessionsLogged: { $sum: 1 },
           totalMinutes: { $sum: safeDurationExpr },
           cashCollected: {
-            $sum: {$cond: [{ $eq: [{$toLower: '$payment' }, 'cash'] }, '$cost', 0]
-            }
+            $sum: { $cond: [{ $eq: [{ $toLower: '$payment' }, 'cash'] }, '$cost', 0] }
           },
           upiCollected: {
-            $sum: {$cond: [
+            $sum: {
+              $cond: [
                 {
                   $or: [
                     { $regexMatch: { input: '$payment', regex: /upi/i } },
                     { $regexMatch: { input: '$payment', regex: /gpay/i } }
                   ]
                 },
-                '$cost',                 0               ]             }           }         }       },       {$sort: { totalRevenue: -1 } }
+                '$cost',
+                0
+              ]
+            }
+          }
+        }
+      },
+      { $sort: { totalRevenue: -1 } }
     ]);
 
     const staffAnalytics = staffPerformance.map((staff) => ({
@@ -252,11 +267,19 @@ const getDashboardAnalytics = async (req, res, next) => {
       maintenanceDevices: maintenanceDeviceCount
     };
 
-    // 8. STAFF TASK COMPLETION PERFORMANCE
-    const totalTasks = await Task.countDocuments();
-    const completedTasks = await Task.countDocuments({ status: 'completed' });
-    const verifiedTasks = await Task.countDocuments({ status: 'verified' });
-    const pendingTasks = await Task.countDocuments({ status: 'pending' });
+    // 8. STAFF TASK COMPLETION PERFORMANCE (Date-Bounded Filter)
+    const taskMatchQuery = {};
+    if (start && end) {
+      taskMatchQuery.$or = [
+        { createdAt: { $gte: start, $lte: end } },
+        { completedAt: { $gte: start, $lte: end } }
+      ];
+    }
+
+    const totalTasks = await Task.countDocuments(taskMatchQuery);
+    const completedTasks = await Task.countDocuments({ ...taskMatchQuery, status: 'completed' });
+    const verifiedTasks = await Task.countDocuments({ ...taskMatchQuery, status: 'verified' });
+    const pendingTasks = await Task.countDocuments({ ...taskMatchQuery, status: 'pending' });
 
     const taskStats = {
       totalTasks,

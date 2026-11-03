@@ -1,51 +1,116 @@
+  // backend/controllers/pricingController.js
 const PricingConfig = require('../models/PricingConfig');
-const { DEFAULT_PRICING_MATRIX } = require('../config/pricing');
+const { getActivePricingConfig, DEFAULT_MATRIX } = require('../services/pricingService');
 const { getIO } = require('../socket');
 
-const getPricing = async (req, res) => {
+const getPricing = async (req, res, next) => {
   try {
-    let config = await PricingConfig.findOne().sort({ updatedAt: -1 });
-
-    if (!config) {
-      config = await PricingConfig.create({
-        matrix: DEFAULT_PRICING_MATRIX,
-      });
-    }
-
+    const config = await getActivePricingConfig();
     res.json(config);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch pricing config' });
+    next(error);
   }
 };
 
-const updatePricing = async (req, res) => {
+const updatePricingMatrix = async (req, res, next) => {
   try {
     const { matrix } = req.body;
-
     if (!matrix) {
       return res.status(400).json({ error: 'Matrix payload is required' });
     }
 
-    let config = await PricingConfig.findOne().sort({ updatedAt: -1 });
+    let config = await getActivePricingConfig();
+    config.matrix = matrix;
+    config.updatedBy = req.user?._id;
+    await config.save();
 
-    if (config) {
-      config.matrix = matrix;
-      config.updatedBy = req.user?._id;
-      await config.save();
-    } else {
-      config = await PricingConfig.create({
-        matrix,
-        updatedBy: req.user?._id,
-      });
-    }
-
-    // Broadcast updated matrix real-time across connected clients
     getIO().emit('pricing_updated', config);
-
     res.json({ message: 'Pricing rates updated successfully', config });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to update pricing config' });
+    next(error);
   }
 };
 
-module.exports = { getPricing, updatePricing };
+const createOffer = async (req, res, next) => {
+  try {
+    const offerData = req.body;
+    let config = await getActivePricingConfig();
+
+    config.offers.push(offerData);
+    config.updatedBy = req.user?._id;
+    await config.save();
+
+    getIO().emit('pricing_updated', config);
+    res.status(201).json({ message: 'Offer created successfully', config });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const updateOffer = async (req, res, next) => {
+  try {
+    const { offerId } = req.params;
+    let config = await getActivePricingConfig();
+
+    const offer = config.offers.id(offerId);
+    if (!offer) {
+      return res.status(404).json({ error: 'Offer not found' });
+    }
+
+    Object.assign(offer, req.body);
+    config.updatedBy = req.user?._id;
+    await config.save();
+
+    getIO().emit('pricing_updated', config);
+    res.json({ message: 'Offer updated successfully', config });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteOffer = async (req, res, next) => {
+  try {
+    const { offerId } = req.params;
+    let config = await getActivePricingConfig();
+
+    config.offers.pull(offerId);
+    config.updatedBy = req.user?._id;
+    await config.save();
+
+    getIO().emit('pricing_updated', config);
+    res.json({ message: 'Offer deleted successfully', config });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+const resetPricingToDefaults = async (req, res, next) => {
+  try {
+    let config = await PricingConfig.findOne().sort({ updatedAt: -1 });
+    if (!config) {
+      config = new PricingConfig();
+    }
+
+    config.matrix = DEFAULT_MATRIX;
+    config.offers = [];
+    config.updatedBy = req.user?._id;
+    await config.save();
+
+    // Broadcast reset configuration live to all connected screens
+    getIO().emit('pricing_updated', config);
+
+    res.json({ message: 'Pricing matrix reset to default system rates', config });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  getPricing,
+  updatePricingMatrix,
+  createOffer,
+  updateOffer,
+  deleteOffer,
+  resetPricingToDefaults,
+};

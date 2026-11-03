@@ -1,3 +1,4 @@
+// backend/routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
 const {
@@ -10,6 +11,8 @@ const {
   revokeInvite,
   verifyInviteToken,
   completeOnboarding,
+  forgotPassword,
+  resetPassword,
 } = require('../controllers/authController');
 const { protect, authorizeRoles } = require('../middleware/authMiddleware');
 const upload = require('../middleware/upload');
@@ -19,6 +22,10 @@ router.post('/login', login);
 router.post('/register', register);
 router.post('/logout', logout);
 router.get('/me', protect, getMe);
+
+// Password Recovery Routes (Protected by passwordResetLimiter in server.js)
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 
 // Admin Invite Management Routes
 router.post('/invite', protect, authorizeRoles('admin'), inviteUser);

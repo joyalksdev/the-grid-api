@@ -5,12 +5,18 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const mongoSanitize = require('express-mongo-sanitize');
 const hpp = require('hpp');
 const connectDB = require('./config/db');
 const { initSocket } = require('./socket');
 const initTaskScheduler = require('./jobs/taskScheduler');
+
+// Import modularized security rate limiters
+const { 
+  globalLimiter, 
+  authLimiter, 
+  passwordResetLimiter 
+} = require('./middleware/rateLimiters');
 
 dotenv.config();
 
@@ -53,9 +59,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-
 initSocket(server, allowedOrigins);
-
 initTaskScheduler();
 
 app.use(
@@ -65,29 +69,18 @@ app.use(
   })
 );
 
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests from this IP. Please try again after 15 minutes.' },
-});
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: false,
-  message: { error: 'Too many failed login attempts. Please try again after 15 minutes.' },
-});
-
+// 1. Apply Global Rate Limiter to all incoming API traffic
 app.use('/api', globalLimiter);
+
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(cookieParser(process.env.COOKIE_SECRET));
 app.use(mongoSanitize());
 app.use(hpp());
+
+// 2. Apply Targeted Granular Limiters to Authentication Routes
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/forgot-password', passwordResetLimiter);
 
 app.get('/health', (req, res) => {
   res.json({

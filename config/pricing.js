@@ -1,3 +1,4 @@
+// backend/config/pricing.js
 const DEFAULT_PRICING_MATRIX = {
   Single: {
     sessions: { 15: 50, 30: 90, 60: 160 },
