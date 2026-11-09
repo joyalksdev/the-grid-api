@@ -6,12 +6,30 @@ const { getIO } = require('../socket');
 const initTaskScheduler = () => {
   console.log('⏰ Task scheduler initialized');
 
-  // 1. Midnight Rollover (00:00 every day)
+  // 1. Midnight Rollover (00:00 every day IST)
   cron.schedule('0 0 * * *', async () => {
     try {
       console.log('🔄 Running midnight daily task lifecycle check...');
 
-      // A. If a daily task was COMPLETED today -> Reset it to pending for the new day
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+
+      // A. Flag uncompleted pending tasks from previous days as OVERDUE + URGENT FIRST
+      await Task.updateMany(
+        {
+          taskType: 'daily',
+          status: 'pending',
+          lastResetAt: { $lt: startOfToday },
+        },
+        {
+          $set: {
+            isOverdue: true,
+            priority: 'urgent',
+          },
+        }
+      );
+
+      // B. Reset completed or verified daily tasks to pending for the new day
       await Task.updateMany(
         { taskType: 'daily', status: { $in: ['completed', 'verified'] } },
         {
@@ -25,22 +43,14 @@ const initTaskScheduler = () => {
         }
       );
 
-      // B. If a daily task was NOT completed (still pending) -> Flag as OVERDUE + escalate priority to URGENT
-      await Task.updateMany(
-        { taskType: 'daily', status: 'pending' },
-        {
-          $set: {
-            isOverdue: true,
-            priority: 'urgent',
-          },
-        }
-      );
-
       // Notify all connected frontend screens to refresh their boards
       getIO().emit('tasks_rolled_over');
+      console.log('✅ Midnight task rollover completed successfully.');
     } catch (error) {
       console.error('Error during midnight task rollover:', error);
     }
+  }, {
+    timezone: 'Asia/Kolkata',
   });
 
   // 2. Minute Check for Scheduled Task Timers
@@ -48,7 +58,6 @@ const initTaskScheduler = () => {
     try {
       const now = new Date();
 
-      // Find scheduled tasks whose time has arrived and haven't triggered a pop-up alert yet
       const dueScheduledTasks = await Task.find({
         taskType: 'scheduled',
         status: 'pending',
@@ -60,7 +69,6 @@ const initTaskScheduler = () => {
         task.isNotified = true;
         await task.save();
 
-        // Broadcast Socket event ready for your notification engine
         getIO().emit('scheduled_task_due', {
           taskId: task._id,
           title: task.title,
@@ -73,6 +81,8 @@ const initTaskScheduler = () => {
     } catch (error) {
       console.error('Error checking scheduled task timers:', error);
     }
+  }, {
+    timezone: 'Asia/Kolkata',
   });
 };
 
