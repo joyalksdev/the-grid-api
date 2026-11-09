@@ -92,6 +92,9 @@ app.get('/health', (req, res) => {
 
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/screens', require('./routes/screenRoutes'));
+app.use('/api/bookings', require('./routes/bookingRoutes'))
+app.use('/api/games', require('./routes/gameRoutes'))
+app.use('/api/customers', require('./routes/customerRoutes'))
 app.use('/api/pricing', require('./routes/pricingRoutes'));
 app.use('/api/logs', require('./routes/logRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
