@@ -59,7 +59,7 @@ const allowedOrigins = [
   'https://thegridgaming.fun',
   'https://www.thegridgaming.fun',
   'https://app.thegridgaming.fun',
-  'https://gridgaming.vercel.app',
+  'https://the-grid-web.vercel.app',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:5174',
