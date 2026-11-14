@@ -21,6 +21,10 @@ const DEFAULT_MATRIX = {
   SimDrive: {
     sessions: { 15: 90, 30: 170, 60: 290 },
     extensions: { 15: 80, 30: 150, 60: 260 }
+  },
+  GTA6_Launch: {
+    sessions: { 30: 150, 60: 250 },
+    extensions: { 30: 130, 60: 230 }
   }
 };
 
@@ -31,6 +35,12 @@ async function getActivePricingConfig() {
   let config = await PricingConfig.findOne().sort({ updatedAt: -1 });
   if (!config) {
     config = await PricingConfig.create({ matrix: DEFAULT_MATRIX, offers: [] });
+  } else if (!config.matrix?.GTA6_Launch) {
+    config.matrix = {
+      ...DEFAULT_MATRIX,
+      ...(config.matrix ? (config.matrix.toObject ? config.matrix.toObject() : config.matrix) : {}),
+      GTA6_Launch: DEFAULT_MATRIX.GTA6_Launch,
+    };
   }
   return config;
 }
@@ -102,9 +112,60 @@ function getPlayersCount(mode) {
   return 1;
 }
 
+function getConvenienceFee() {
+  const fee = process.env.CONVENIENCE_FEE;
+  if (fee === undefined || fee === null || fee === '') return 15;
+  const parsed = Number(fee);
+  return Number.isNaN(parsed) ? 15 : parsed;
+}
+
+function getTaxPercent() {
+  const pct = process.env.GST_PERCENT || process.env.TAX_PERCENT;
+  if (pct === undefined || pct === null || pct === '') return 18;
+  const parsed = Number(pct);
+  return Number.isNaN(parsed) ? 18 : parsed;
+}
+
+/**
+ * Itemizes the booking pricing breakdown:
+ * - baseAmount: base session cost from matrix (after offers)
+ * - gstPercent: applicable tax %
+ * - taxAmount: rounded tax/GST amount
+ * - convenienceFee: configurable online booking convenience fee (from env)
+ * - totalAmount: sum of baseAmount + taxAmount + convenienceFee
+ */
+async function calculateBookingBreakdown(mode, duration, isExtension = false) {
+  const baseAmount = await calculateSessionCost(mode, duration, isExtension);
+  if (!baseAmount || baseAmount <= 0) {
+    return {
+      baseAmount: 0,
+      gstPercent: 0,
+      taxAmount: 0,
+      convenienceFee: 0,
+      totalAmount: 0,
+    };
+  }
+
+  const gstPercent = getTaxPercent();
+  const taxAmount = Math.round((baseAmount * gstPercent) / 100);
+  const convenienceFee = getConvenienceFee();
+  const totalAmount = baseAmount + taxAmount + convenienceFee;
+
+  return {
+    baseAmount,
+    gstPercent,
+    taxAmount,
+    convenienceFee,
+    totalAmount,
+  };
+}
+
 module.exports = {
   getActivePricingConfig,
   calculateSessionCost,
+  calculateBookingBreakdown,
+  getConvenienceFee,
+  getTaxPercent,
   getPlayersCount,
   DEFAULT_MATRIX,
 };

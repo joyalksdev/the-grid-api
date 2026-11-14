@@ -45,6 +45,7 @@ const pricingConfigSchema = new mongoose.Schema(
       Triple: { type: ModePricingSchema, required: true },
       Big: { type: ModePricingSchema, required: true },
       SimDrive: { type: ModePricingSchema, required: true },
+      GTA6_Launch: { type: ModePricingSchema, required: false },
     },
     offers: [OfferSchema],
     updatedBy: {

@@ -19,6 +19,10 @@ const DEFAULT_PRICING_MATRIX = {
   SimDrive: {
     sessions: { 15: 90, 30: 170, 60: 290 },
     extensions: { 15: 80, 30: 150, 60: 260 }
+  },
+  GTA6_Launch: {
+    sessions: { 30: 150, 60: 250 },
+    extensions: { 30: 130, 60: 230 }
   }
 };
 

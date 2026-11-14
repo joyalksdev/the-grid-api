@@ -24,7 +24,16 @@ const getBookings = async (req, res) => {
     const query = {};
 
     if (date) query.date = date;
-    if (status) query.status = status;
+    if (status) {
+      query.status = status;
+    } else {
+      // Hide unpaid online checkout drafts until payment is confirmed
+      query.$or = [
+        { source: { $ne: 'online' } },
+        { paymentStatus: 'paid' },
+        { status: { $in: ['confirmed', 'checked_in', 'completed', 'cancelled'] } },
+      ];
+    }
     if (screenId) query.screen = screenId;
     if (station && station !== 'all') query.station = station;
 
@@ -68,6 +77,7 @@ const createBooking = async (req, res) => {
       date, 
       startTime, 
       duration, 
+      estimatedCost,
       selectedGames, 
       notes 
     } = req.body;
@@ -104,7 +114,7 @@ const createBooking = async (req, res) => {
     const existingBookings = await Booking.find({
       screen: screenId,
       date,
-      status: { $in: ['confirmed', 'pending', 'checked_in'] },
+      status: { $in: ['confirmed', 'checked_in'] },
     });
 
     for (const b of existingBookings) {
@@ -116,6 +126,7 @@ const createBooking = async (req, res) => {
     }
 
     const booking = await Booking.create({
+      bookingCode: `GRID-${Math.floor(100000 + Math.random() * 900000)}`,
       customer: customer._id,
       customerName,
       phoneNumber,
@@ -125,8 +136,14 @@ const createBooking = async (req, res) => {
       date,
       startTime,
       duration: Number(duration),
+      baseAmount: Number(estimatedCost) || 0,
+      taxAmount: 0,
+      convenienceFee: 0,
+      totalAmount: Number(estimatedCost) || 0,
+      estimatedCost: Number(estimatedCost) || 0,
       selectedGames,
       notes,
+      source: 'walk_in',
       createdBy: req.user._id,
       createdByName: req.user.name || req.user.username,
     });
