@@ -11,7 +11,7 @@ const sessionSchema = new mongoose.Schema({
   },
   mode: {
     type: String,
-    enum: ['Single', 'Dual', 'Triple', 'Big', 'SimDrive'], // Added 'Triple'
+    enum: ['Single', 'Dual', 'Triple', 'Big', 'SimDrive', 'GTA6_Launch'],
     required: true
   },
   playersCount: {
