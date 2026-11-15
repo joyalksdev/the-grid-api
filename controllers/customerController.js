@@ -4,7 +4,246 @@ const jwt = require('jsonwebtoken');
 const Customer = require('../models/Customer');
 const Booking = require('../models/Booking');
 const { normalizeIndianMobile } = require('../services/fast2smsService');
+const { sendCustomerOtpEmail } = require('../config/mailer');
 const { formatSafePublicTicket } = require('../utils/bookingHelpers');
+
+// In-memory 5-minute TTL store for Customer Email OTP verification
+// key: lowercase email -> { otp, mode, phone, name, expiresAt }
+const emailOtpStore = new Map();
+const EMAIL_OTP_TTL_MS = 5 * 60 * 1000;
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// @desc    Step 1: Check if customer email exists; if so, immediately send Login OTP via Nodemailer
+// @route   POST /api/public/auth/check-email
+const checkCustomerEmail = async (req, res) => {
+  try {
+    const cleanEmail = String(req.body.email || '')
+      .trim()
+      .toLowerCase();
+
+    if (!cleanEmail || !EMAIL_REGEX.test(cleanEmail)) {
+      return res.status(400).json({
+        error: 'Please enter a valid email address.',
+      });
+    }
+
+    const existingCustomer = await Customer.findOne({ email: cleanEmail });
+
+    if (existingCustomer) {
+      const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+      emailOtpStore.set(cleanEmail, {
+        otp: otpCode,
+        mode: 'login',
+        phone: existingCustomer.phoneNumber,
+        name: existingCustomer.name,
+        expiresAt: Date.now() + EMAIL_OTP_TTL_MS,
+      });
+
+      const result = await sendCustomerOtpEmail({
+        to: cleanEmail,
+        otp: otpCode,
+        isNewUser: false,
+      });
+
+      return res.json({
+        success: true,
+        exists: true,
+        email: cleanEmail,
+        message: 'Verification code sent to your email.',
+        channel: result.channel,
+        ...(result.channel === 'dev_console' ? { devOtp: otpCode } : {}),
+      });
+    }
+
+    return res.json({
+      success: true,
+      exists: false,
+      email: cleanEmail,
+    });
+  } catch (error) {
+    console.error('Check Customer Email Error:', error.message);
+    res.status(500).json({
+      error: 'Failed to check email address. Please try again.',
+    });
+  }
+};
+
+// @desc    Step 2B: Send Nodemailer OTP for New User Registration (or Resend OTP)
+// @route   POST /api/public/auth/send-email-otp
+const sendEmailRegistrationOtp = async (req, res) => {
+  try {
+    const { email, phone, name } = req.body;
+    const cleanEmail = String(email || '')
+      .trim()
+      .toLowerCase();
+
+    if (!cleanEmail || !EMAIL_REGEX.test(cleanEmail)) {
+      return res.status(400).json({
+        error: 'Please enter a valid email address.',
+      });
+    }
+
+    const existingCustomer = await Customer.findOne({ email: cleanEmail });
+    const mobile10 = normalizeIndianMobile(
+      phone || existingCustomer?.phoneNumber || ''
+    );
+
+    if (!existingCustomer && (!mobile10 || mobile10.length !== 10)) {
+      return res.status(400).json({
+        error: 'Please enter a valid 10-digit WhatsApp mobile number.',
+      });
+    }
+
+    const fallbackName =
+      cleanEmail
+        .split('@')[0]
+        .replace(/[._-]+/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Grid Player';
+
+    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    emailOtpStore.set(cleanEmail, {
+      otp: otpCode,
+      mode: existingCustomer ? 'login' : 'register',
+      phone: mobile10 ? `+91 ${mobile10}` : existingCustomer?.phoneNumber,
+      name: String(name || existingCustomer?.name || fallbackName).trim(),
+      expiresAt: Date.now() + EMAIL_OTP_TTL_MS,
+    });
+
+    const result = await sendCustomerOtpEmail({
+      to: cleanEmail,
+      otp: otpCode,
+      isNewUser: !existingCustomer,
+    });
+
+    res.json({
+      success: true,
+      email: cleanEmail,
+      message: 'Verification code sent to your email.',
+      channel: result.channel,
+      ...(result.channel === 'dev_console' ? { devOtp: otpCode } : {}),
+    });
+  } catch (error) {
+    console.error('Send Email Registration OTP Error:', error.message);
+    res.status(500).json({
+      error: error.message || 'Failed to send verification email.',
+    });
+  }
+};
+
+// @desc    Verify 6-digit Email OTP, Login or Create Customer, & Return JWT
+// @route   POST /api/public/auth/verify-email-otp
+const verifyEmailOtp = async (req, res) => {
+  try {
+    const { email, otp, phone, name } = req.body;
+    const cleanEmail = String(email || '')
+      .trim()
+      .toLowerCase();
+    const cleanOtp = String(otp || '').trim();
+
+    if (!cleanEmail || !cleanOtp || cleanOtp.length < 6) {
+      return res.status(400).json({
+        error: 'Email and 6-digit verification code are required.',
+      });
+    }
+
+    const record = emailOtpStore.get(cleanEmail);
+    if (!record || record.expiresAt < Date.now()) {
+      emailOtpStore.delete(cleanEmail);
+      return res.status(400).json({
+        error: 'Verification code has expired. Please request a new code.',
+      });
+    }
+
+    if (record.otp !== cleanOtp) {
+      return res.status(400).json({
+        error: 'Invalid verification code. Please check and try again.',
+      });
+    }
+
+    emailOtpStore.delete(cleanEmail);
+
+    const mobile10 = normalizeIndianMobile(phone || record.phone || '');
+    const fallbackName =
+      cleanEmail
+        .split('@')[0]
+        .replace(/[._-]+/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Grid Player';
+    const cleanName = String(name || record.name || fallbackName).trim();
+
+    let customer = await Customer.findOne({ email: cleanEmail });
+
+    if (customer) {
+      if (mobile10 && mobile10.length === 10 && !customer.phoneNumber) {
+        customer.phoneNumber = `+91 ${mobile10}`;
+      }
+      customer.lastVisit = new Date();
+      await customer.save();
+    } else {
+      if (!mobile10 || mobile10.length !== 10) {
+        return res.status(400).json({
+          error: 'A valid 10-digit WhatsApp number is required to register.',
+        });
+      }
+
+      const formattedPhone = `+91 ${mobile10}`;
+      const phoneRegex = new RegExp(mobile10.split('').join('\\s*'));
+      customer = await Customer.findOne({
+        $or: [
+          { phoneNumber: formattedPhone },
+          { phoneNumber: mobile10 },
+          { phoneNumber: phoneRegex },
+        ],
+      });
+
+      if (customer) {
+        customer.email = cleanEmail;
+        if (!customer.name || customer.name === 'Grid Player') {
+          customer.name = cleanName;
+        }
+        customer.lastVisit = new Date();
+        await customer.save();
+      } else {
+        customer = await Customer.create({
+          name: cleanName,
+          email: cleanEmail,
+          phoneNumber: formattedPhone,
+          totalVisits: 0,
+          lastVisit: new Date(),
+        });
+      }
+    }
+
+    const token = jwt.sign(
+      {
+        customerId: customer._id,
+        email: customer.email,
+        phone: customer.phoneNumber,
+        role: 'customer',
+      },
+      process.env.JWT_SECRET || 'grid_arena_customer_secret',
+      { expiresIn: '30d' }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        _id: customer._id,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phoneNumber,
+        totalVisits: customer.totalVisits || 0,
+        createdAt: customer.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error('Verify Email OTP Error:', error.message);
+    res.status(500).json({
+      error: 'Failed to verify code. Please try again.',
+    });
+  }
+};
 
 // @desc    Search customers by name or phone number for Admin autocomplete
 // @route   GET /api/customers/search
@@ -124,6 +363,7 @@ const getCustomerProfile = async (req, res) => {
       user: {
         _id: customer._id,
         name: customer.name,
+        email: customer.email,
         phone: customer.phoneNumber,
         totalVisits: customer.totalVisits || bookings.length,
         lastVisit: customer.lastVisit,
@@ -164,6 +404,7 @@ const updateCustomerProfile = async (req, res) => {
       user: {
         _id: customer._id,
         name: customer.name,
+        email: customer.email,
         phone: customer.phoneNumber,
         totalVisits: customer.totalVisits || 0,
         lastVisit: customer.lastVisit,
@@ -176,6 +417,9 @@ const updateCustomerProfile = async (req, res) => {
 };
 
 module.exports = {
+  checkCustomerEmail,
+  sendEmailRegistrationOtp,
+  verifyEmailOtp,
   searchCustomers,
   protectCustomer,
   getCustomerProfile,

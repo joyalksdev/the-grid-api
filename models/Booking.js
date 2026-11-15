@@ -34,9 +34,17 @@ const bookingSchema = new mongoose.Schema(
       index: true,
       default: () => crypto.randomBytes(24).toString('hex'),
     },
+    baseSessionDuration: { type: Number, default: 60 },
+    extensionDuration: { type: Number, default: 0 },
+    extensionCost: { type: Number, default: 0 },
+    expiresAt: {
+      type: Date,
+      default: null,
+      index: { expires: 0 },
+    },
     source: {
       type: String,
-      enum: ['walk_in', 'online', 'manual_admin'],
+      enum: ['walk_in', 'online', 'manual_admin', 'gta6_manual'],
       default: 'walk_in',
     },
     paymentStatus: {

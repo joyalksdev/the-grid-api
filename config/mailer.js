@@ -79,4 +79,59 @@ const sendPasswordResetEmail = async ({ to, name, resetUrl }) => {
   });
 };
 
-module.exports = { sendInviteEmail, sendPasswordResetEmail };
+const sendCustomerOtpEmail = async ({ to, otp, isNewUser = false }) => {
+  if (!process.env.SMTP_USER || process.env.SMTP_USER.includes('your_email')) {
+    console.log('----------------------------------------------------');
+    console.log(`📧 CUSTOMER OTP EMAIL TO: ${to}`);
+    console.log(`🔐 6-DIGIT VERIFICATION CODE: ${otp}`);
+    console.log('----------------------------------------------------');
+    return { sent: true, channel: 'dev_console' };
+  }
+
+  const htmlContent = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f17; color: #f3f4f6; padding: 40px 20px; border-radius: 16px; max-width: 500px; margin: 0 auto; border: 1px solid #1f2937;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #00ff66; font-size: 22px; font-weight: 800; letter-spacing: 2px; margin: 0;">THE GRID</h1>
+        <p style="color: #9ca3af; font-size: 12px; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px;">GTA VI Launch Reservation</p>
+      </div>
+      <div style="background-color: #111827; padding: 28px 24px; border-radius: 12px; border: 1px solid #1f2937; text-align: center;">
+        <p style="margin-top: 0; font-size: 14px; color: #d1d5db; line-height: 1.5;">
+          ${
+            isNewUser
+              ? 'Welcome to <strong>The Grid</strong>! Enter this 6-digit verification code to create your account and lock your GTA 6 slot:'
+              : 'Welcome back to <strong>The Grid</strong>! Enter this 6-digit verification code to sign in and lock your GTA 6 slot:'
+          }
+        </p>
+        <div style="margin: 24px 0; padding: 16px; background-color: #0b0f17; border: 1px solid rgba(0, 255, 102, 0.35); border-radius: 12px;">
+          <span style="font-family: monospace; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #00ff66;">${otp}</span>
+        </div>
+        <p style="font-size: 11px; color: #6b7280; margin-bottom: 0;">This verification code expires in 5 minutes.</p>
+      </div>
+    </div>
+  `;
+
+  try {
+    await transporter.sendMail({
+      from:
+        process.env.EMAIL_FROM ||
+        '"The Grid Gaming Lounge" <no-reply@thegridgaming.fun>',
+      to,
+      subject: `${otp} is your verification code - The Grid`,
+      html: htmlContent,
+    });
+    return { sent: true, channel: 'email' };
+  } catch (err) {
+    console.error('Nodemailer SMTP error (falling back to console OTP):', err.message);
+    console.log('----------------------------------------------------');
+    console.log(`📧 CUSTOMER OTP EMAIL TO: ${to}`);
+    console.log(`🔐 6-DIGIT VERIFICATION CODE: ${otp}`);
+    console.log('----------------------------------------------------');
+    return { sent: true, channel: 'dev_console' };
+  }
+};
+
+module.exports = {
+  sendInviteEmail,
+  sendPasswordResetEmail,
+  sendCustomerOtpEmail,
+};

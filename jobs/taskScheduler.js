@@ -1,7 +1,8 @@
 // backend/jobs/taskScheduler.js
 const cron = require('node-cron');
 const Task = require('../models/Task');
-const { getIO } = require('../socket');
+const Booking = require('../models/Booking');
+const { getIO, releaseSlotLock } = require('../socket');
 
 const initTaskScheduler = () => {
   console.log('⏰ Task scheduler initialized');
@@ -80,6 +81,44 @@ const initTaskScheduler = () => {
       }
     } catch (error) {
       console.error('Error checking scheduled task timers:', error);
+    }
+  }, {
+    timezone: 'Asia/Kolkata',
+  });
+
+  // 3. Minute Check for Expired Pending Bookings (Auto-release after 15 mins)
+  cron.schedule('* * * * *', async () => {
+    try {
+      const cutoff = new Date(Date.now() - 15 * 60 * 1000);
+      const expiredPending = await Booking.find({
+        status: 'pending',
+        $or: [
+          { expiresAt: { $ne: null, $lte: new Date() } },
+          { createdAt: { $lte: cutoff } },
+        ],
+      });
+
+      if (expiredPending.length > 0) {
+        for (const b of expiredPending) {
+          await Booking.findByIdAndDelete(b._id);
+          const scrCode = b.station
+            ? `Screen${(b.station.match(/(\d+)/) || [null, '1'])[1]}`
+            : 'Screen1';
+          releaseSlotLock(scrCode, b.date, b.startTime);
+        }
+
+        try {
+          const io = getIO();
+          if (io) {
+            io.emit('booking_deleted', { message: 'Expired pending bookings auto-released' });
+            io.emit('slot_unlocked');
+          }
+        } catch (_) {}
+
+        console.log(`🧹 Auto-released ${expiredPending.length} expired pending bookings`);
+      }
+    } catch (error) {
+      console.error('Error auto-releasing expired pending bookings:', error.message);
     }
   }, {
     timezone: 'Asia/Kolkata',

@@ -37,6 +37,42 @@ const broadcastLocks = () => {
   io.emit('slots_locked_updated', serializeLocks());
 };
 
+const lockSlot = (
+  screenCode,
+  date,
+  startTime,
+  ttlMs = LOCK_TTL_MS,
+  duration = 60
+) => {
+  if (!screenCode || !date || !startTime) return false;
+  const key = `${screenCode}_${date}_${startTime}`;
+  const existing = slotLocks.get(key);
+  if (existing) {
+    clearTimeout(existing.timeoutId);
+  }
+
+  const now = Date.now();
+  const durationMs = Number(ttlMs) || LOCK_TTL_MS;
+  const expiresAt = now + durationMs;
+  const timeoutId = setTimeout(() => {
+    slotLocks.delete(key);
+    broadcastLocks();
+  }, durationMs);
+
+  slotLocks.set(key, {
+    screenCode,
+    date,
+    startTime,
+    duration: Number(duration) || 60,
+    socketId: 'server_hold',
+    expiresAt,
+    timeoutId,
+  });
+
+  broadcastLocks();
+  return true;
+};
+
 const releaseSlotLock = (screenCode, date, startTime) => {
   const key = `${screenCode}_${date}_${startTime}`;
   const existing = slotLocks.get(key);
@@ -185,5 +221,6 @@ module.exports = {
   initSocket,
   getIO,
   getActiveSlotLocks: serializeLocks,
+  lockSlot,
   releaseSlotLock,
 };

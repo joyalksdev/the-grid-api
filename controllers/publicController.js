@@ -76,11 +76,21 @@ const getPublicAvailability = async (req, res) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
+    const cutoff = new Date(Date.now() - 15 * 60 * 1000);
     const [screens, bookings] = await Promise.all([
       ensureScreensExist(),
       Booking.find({
         date,
-        status: { $in: ['confirmed', 'checked_in'] },
+        $or: [
+          { status: { $in: ['confirmed', 'checked_in'] } },
+          {
+            status: 'pending',
+            $or: [
+              { expiresAt: { $gt: new Date() } },
+              { createdAt: { $gt: cutoff } },
+            ],
+          },
+        ],
       })
         .populate('screen', 'screenId name type status')
         .sort({ startTime: 1 })
@@ -104,7 +114,7 @@ const getPublicAvailability = async (req, res) => {
         startTime: time24,
         startTime12h: to12HourTime(time24),
         duration: b.duration,
-        status: b.status,
+        status: b.status === 'pending' ? 'locked' : b.status,
       };
     });
 

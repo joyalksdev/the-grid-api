@@ -35,12 +35,14 @@ async function getActivePricingConfig() {
   let config = await PricingConfig.findOne().sort({ updatedAt: -1 });
   if (!config) {
     config = await PricingConfig.create({ matrix: DEFAULT_MATRIX, offers: [] });
-  } else if (!config.matrix?.GTA6_Launch) {
+  } else if (!config.matrix?.GTA6_Launch?.sessions || !config.matrix?.GTA6_Launch?.extensions) {
     config.matrix = {
       ...DEFAULT_MATRIX,
       ...(config.matrix ? (config.matrix.toObject ? config.matrix.toObject() : config.matrix) : {}),
       GTA6_Launch: DEFAULT_MATRIX.GTA6_Launch,
     };
+    config.markModified('matrix');
+    await config.save();
   }
   return config;
 }

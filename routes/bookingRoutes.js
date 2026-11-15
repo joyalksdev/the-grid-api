@@ -5,12 +5,18 @@ const {
   getBookings,
   getBookingsByScreen,
   createBooking,
+  createGta6ManualBooking,
+  approveBooking,
   updateBookingStatus,
+  extendBooking,
   refundBooking,
   resendTicket,
   deleteBooking,
 } = require('../controllers/bookingController');
 const { protect } = require('../middleware/authMiddleware');
+
+// GTA 6 Launch Manual Option 1 Public Endpoint (unprotected)
+router.post('/gta6-manual', createGta6ManualBooking);
 
 router.route('/')
   .get(protect, getBookings)  
@@ -22,6 +28,15 @@ router.route('/screen/:screenId')
 
 router.route('/:id/status')
   .patch(protect, updateBookingStatus);
+
+router.route('/:id/extend')
+  .patch(protect, extendBooking)
+  .post(protect, extendBooking);
+
+// Staff / Admin Approve & Mark Paid (fires Fast2SMS ticket)
+router.route('/:id/approve')
+  .patch(protect, approveBooking)
+  .post(protect, approveBooking);
 
 router.route('/:id/refund')
   .post(protect, refundBooking)
