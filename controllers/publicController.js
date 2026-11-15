@@ -51,6 +51,8 @@ const getPublicConfig = async (req, res) => {
         matrix: pricingConfig.matrix,
         offers: (pricingConfig.offers || []).filter((o) => o.isActive),
       },
+      bookingEnabled:
+        String(process.env.BOOKING_ENABLED ?? 'true').toLowerCase() === 'true',
       paymentGateway: {
         provider: 'cashfree',
         enabled: cfConfig.isConfigured,

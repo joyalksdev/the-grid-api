@@ -6,6 +6,8 @@ const {
   getBookingsByScreen,
   createBooking,
   updateBookingStatus,
+  refundBooking,
+  resendTicket,
   deleteBooking,
 } = require('../controllers/bookingController');
 const { protect } = require('../middleware/authMiddleware');
@@ -20,6 +22,13 @@ router.route('/screen/:screenId')
 
 router.route('/:id/status')
   .patch(protect, updateBookingStatus);
+
+router.route('/:id/refund')
+  .post(protect, refundBooking)
+  .patch(protect, refundBooking);
+
+router.route('/:id/resend-ticket')
+  .post(protect, resendTicket);
 
 router.route('/:id')
   .delete(protect, deleteBooking);

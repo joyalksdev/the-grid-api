@@ -36,7 +36,7 @@ const bookingSchema = new mongoose.Schema(
     },
     source: {
       type: String,
-      enum: ['walk_in', 'online'],
+      enum: ['walk_in', 'online', 'manual_admin'],
       default: 'walk_in',
     },
     paymentStatus: {
@@ -46,12 +46,26 @@ const bookingSchema = new mongoose.Schema(
     },
     orderId: { type: String, default: '' },
     paymentId: { type: String, default: '' },
+    utr: { type: String, default: '' },
     status: {
       type: String,
-      enum: ['pending', 'confirmed', 'checked_in', 'cancelled', 'completed'],
+      enum: ['pending', 'confirmed', 'checked_in', 'cancelled', 'completed', 'refunded'],
       default: 'confirmed',
     },
     notes: { type: String, default: '' },
+    refundDetails: {
+      refundAmount: { type: Number, default: 0 },
+      refundReason: { type: String, default: '' },
+      refundTransactionRef: { type: String, default: '' },
+      refundedAt: { type: Date, default: null },
+      refundedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+      },
+      refundedByName: { type: String, default: '' },
+      notes: { type: String, default: '' },
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
