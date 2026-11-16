@@ -1,15 +1,33 @@
 // backend/config/mailer.js
 const nodemailer = require('nodemailer');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: process.env.SMTP_PORT == 465,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+function getTransporter() {
+  const host = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
+  const port = Number(process.env.SMTP_PORT) || 587;
+  const user = (process.env.SMTP_USER || '').trim();
+  // Strip spaces in case a 16-char Gmail App Password is pasted with spaces ("xxxx xxxx xxxx xxxx")
+  const pass = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: {
+      user,
+      pass,
+    },
+  });
+}
+
+function isSmtpConfigured() {
+  const user = (process.env.SMTP_USER || '').trim();
+  const pass = (process.env.SMTP_PASS || '').trim();
+  if (!user || !pass) return false;
+  if (user.includes('your_email') || pass.includes('your_app_password')) {
+    return false;
+  }
+  return true;
+}
 
 const sendInviteEmail = async ({ to, name, inviteUrl, role }) => {
   if (!process.env.SMTP_USER || process.env.SMTP_USER.includes('your_email')) {
@@ -37,8 +55,8 @@ const sendInviteEmail = async ({ to, name, inviteUrl, role }) => {
     </div>
   `;
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM || '"The Grid Arena" <no-reply@gridarena.in>',
+  return getTransporter().sendMail({
+    from: process.env.EMAIL_FROM || `"The Grid Arena" <${process.env.SMTP_USER}>`,
     to,
     subject: `Invitation to join The Grid Arena (${role})`,
     html: htmlContent,
@@ -46,7 +64,7 @@ const sendInviteEmail = async ({ to, name, inviteUrl, role }) => {
 };
 
 const sendPasswordResetEmail = async ({ to, name, resetUrl }) => {
-  if (!process.env.SMTP_USER || process.env.SMTP_USER.includes('your_email')) {
+  if (!isSmtpConfigured()) {
     console.log('----------------------------------------------------');
     console.log(`📧 PASSWORD RESET EMAIL TO: ${to}`);
     console.log(`🔗 SECURE RESET LINK: ${resetUrl}`);
@@ -71,8 +89,8 @@ const sendPasswordResetEmail = async ({ to, name, resetUrl }) => {
     </div>
   `;
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM || '"The Grid Arena" <no-reply@gridarena.in>',
+  return getTransporter().sendMail({
+    from: process.env.EMAIL_FROM || `"The Grid Arena" <${process.env.SMTP_USER}>`,
     to,
     subject: 'Password Reset Request - The Grid Arena',
     html: htmlContent,
@@ -80,11 +98,10 @@ const sendPasswordResetEmail = async ({ to, name, resetUrl }) => {
 };
 
 const sendCustomerOtpEmail = async ({ to, otp, isNewUser = false }) => {
-  if (!process.env.SMTP_USER || process.env.SMTP_USER.includes('your_email')) {
-    console.log('----------------------------------------------------');
-    console.log(`📧 CUSTOMER OTP EMAIL TO: ${to}`);
-    console.log(`🔐 6-DIGIT VERIFICATION CODE: ${otp}`);
-    console.log('----------------------------------------------------');
+  if (!isSmtpConfigured()) {
+    console.warn(
+      `⚠️ [SMTP NOT CONFIGURED] Add real SMTP_USER & SMTP_PASS in backend/.env for live email delivery | To: ${to} | OTP: ${otp}`
+    );
     return { sent: true, channel: 'dev_console' };
   }
 
@@ -111,22 +128,20 @@ const sendCustomerOtpEmail = async ({ to, otp, isNewUser = false }) => {
   `;
 
   try {
+    const transporter = getTransporter();
     await transporter.sendMail({
       from:
         process.env.EMAIL_FROM ||
-        '"The Grid Gaming Lounge" <no-reply@thegridgaming.fun>',
+        `"The Grid Gaming Lounge" <${process.env.SMTP_USER}>`,
       to,
       subject: `${otp} is your verification code - The Grid`,
       html: htmlContent,
     });
+    console.log(`✅ [OTP EMAIL SENT] To: ${to}`);
     return { sent: true, channel: 'email' };
   } catch (err) {
-    console.error('Nodemailer SMTP error (falling back to console OTP):', err.message);
-    console.log('----------------------------------------------------');
-    console.log(`📧 CUSTOMER OTP EMAIL TO: ${to}`);
-    console.log(`🔐 6-DIGIT VERIFICATION CODE: ${otp}`);
-    console.log('----------------------------------------------------');
-    return { sent: true, channel: 'dev_console' };
+    console.error('❌ [SMTP EMAIL OTP ERROR]:', err.message);
+    throw new Error('Failed to send verification email. Please check your email address and try again.');
   }
 };
 

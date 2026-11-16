@@ -52,7 +52,6 @@ const checkCustomerEmail = async (req, res) => {
         email: cleanEmail,
         message: 'Verification code sent to your email.',
         channel: result.channel,
-        ...(result.channel === 'dev_console' ? { devOtp: otpCode } : {}),
       });
     }
 
@@ -121,7 +120,6 @@ const sendEmailRegistrationOtp = async (req, res) => {
       email: cleanEmail,
       message: 'Verification code sent to your email.',
       channel: result.channel,
-      ...(result.channel === 'dev_console' ? { devOtp: otpCode } : {}),
     });
   } catch (error) {
     console.error('Send Email Registration OTP Error:', error.message);

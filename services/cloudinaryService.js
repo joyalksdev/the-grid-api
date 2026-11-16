@@ -1,5 +1,12 @@
 // backend/services/cloudinaryService.js
-const cloudinary = require('../config/cloudinary');
+let cloudinaryInstance = null;
+
+function getCloudinary() {
+  if (!cloudinaryInstance) {
+    cloudinaryInstance = require('../config/cloudinary');
+  }
+  return cloudinaryInstance;
+}
 
 const GAMES_ROOT_FOLDER = 'Games';
 
@@ -16,7 +23,7 @@ function getGameFolder(slug) {
  */
 function uploadImageBuffer(buffer, { folder, publicId }) {
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
+    const stream = getCloudinary().uploader.upload_stream(
       {
         folder,
         public_id: publicId,
@@ -50,7 +57,7 @@ function uploadGameImage(buffer, slug, type) {
 async function deleteImage(publicId) {
   if (!publicId) return;
   try {
-    await cloudinary.uploader.destroy(publicId, { invalidate: true });
+    await getCloudinary().uploader.destroy(publicId, { invalidate: true });
   } catch (err) {
     console.error(`Cloudinary delete failed (${publicId}):`, err.message);
   }
@@ -63,8 +70,8 @@ async function deleteGameFolder(slug) {
   if (!slug) return;
   const folder = getGameFolder(slug);
   try {
-    await cloudinary.api.delete_resources_by_prefix(`${folder}/`);
-    await cloudinary.api.delete_folder(folder);
+    await getCloudinary().api.delete_resources_by_prefix(`${folder}/`);
+    await getCloudinary().api.delete_folder(folder);
   } catch (err) {
     console.error(`Cloudinary folder cleanup failed (${folder}):`, err.message);
   }

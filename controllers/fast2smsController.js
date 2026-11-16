@@ -37,7 +37,6 @@ const sendCustomerOtp = async (req, res) => {
       success: true,
       message: 'Verification code sent successfully',
       channel: result.channel,
-      ...(result.channel === 'dev_console' ? { devOtp: otpCode } : {}),
     });
   } catch (error) {
     console.error('Send Customer OTP Error:', error.message);
